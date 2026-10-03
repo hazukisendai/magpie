@@ -2,10 +2,10 @@
 // Settings' Web search section: which provider searches for a model that
 // can't (01huadalang on Discord). The row shows magpie's own pick while none
 // is named; the picker offers Automatic, each provider that can search by
-// its small model, and each of its models; a pick is saved as searcher
-// ("<provider>" or "<provider>/<model>") and shown; one named that magpie
-// can't use (turned off) is said in the row, magpie's pick shown instead;
-// relays said to search are said not to be offered. Another setting saved
+// its small model, and each of its models, including a relay said to search;
+// a pick is saved as searcher ("<provider>" or "<provider>/<model>") and shown;
+// one named that magpie can't use (turned off) is said in the row, magpie's pick shown instead;
+// relays said to search are said not to be picked automatically. Another setting saved
 // keeps the pick (prefsKeep). No click moves the page. English and Chinese, Chromium and
 // WebKit, with the API faked.
 const assert = require("node:assert/strict");
@@ -22,10 +22,12 @@ const choices = [
   { id: "openai", name: "OpenAI", icon: "openai", small: "gpt-5-mini", models: [
     { id: "openai/gpt-5-mini", name: "GPT-5 mini", provider: "openai", providerName: "OpenAI" },
     { id: "openai/gpt-5.5", name: "GPT-5.5", provider: "openai", providerName: "OpenAI" }] },
+  { id: "relay", name: "MyRelay", icon: "generic", small: "claude-haiku-4-5", models: [
+    { id: "relay/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "relay", providerName: "MyRelay" }] },
 ];
 const words = {
-  en: { name: "Searches for other models", auto: "Automatic", small: "gpt-5-mini, its small model", unused: "isn't used: it is turned off", relays: "Relays said to search (MyRelay)" },
-  zh: { name: "代搜供应商", auto: "自动", small: "gpt-5-mini（它的小模型）", unused: "没有用 OpenAI · gpt-5-mini：它已关闭", relays: "标为能搜索的中转站（MyRelay）" },
+  en: { name: "Searches for other models", auto: "Automatic", small: "gpt-5-mini, its small model", unused: "isn't used: it is turned off", relays: "Relays said to search (MyRelay) are never picked automatically" },
+  zh: { name: "代搜供应商", auto: "自动", small: "gpt-5-mini（它的小模型）", unused: "没有用 OpenAI · gpt-5-mini：它已关闭", relays: "标为能搜索的中转站（MyRelay）不会被自动选择" },
 };
 
 function serve(lang, posted, st) {
@@ -93,7 +95,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const items = await page.locator("#list li:not(.group)").allInnerTexts();
       assert(items[0].includes(w.auto), "Automatic comes first");
       assert(items.some((x) => x.includes("GPT-5.5")) && items.some((x) => x.includes("Claude Opus 4.5")));
-      assert(!items.some((x) => x.includes("MyRelay")), "a relay said to search isn't offered");
+      assert(items.some((x) => x.includes("MyRelay")), "a relay said to search can be named");
       await click(page.locator("#list li:not(.group)", { hasText: "GPT-5.5" }));
       await page.waitForFunction(() => document.querySelector("#searchList button.searcher-pick")?.innerText.includes("GPT-5.5"));
       assert.equal(posted.at(-1).searcher, "openai/gpt-5.5");

@@ -1238,8 +1238,9 @@ itself" (#359): the editor's Web search row opens as saved, ticked for one
 saved as searching, and Save posts `searches` ticked or not. A relay with
 only a Chat address has no such row; it comes once an Anthropic URL is
 typed under More endpoints and goes with it, and Save then posts
-`searches: false`. A signed-in account (Codex) has no such row. Every
-string has its Chinese; English and Chinese, Chromium and WebKit.
+`searches: false`. The row says the relay can be named as the searcher but
+is not picked automatically. A signed-in account (Codex) has no such row.
+Every string has its Chinese; English and Chinese, Chromium and WebKit.
 
 `lan-docker.test.cjs` checks Share on local network in a container (Discord:
 magpie in Docker on a NAS showed the container's own 172.17.x address).
@@ -1362,8 +1363,8 @@ faked.
 models" row (01huadalang on Discord: pick which provider searches for a model
 that can't). With none named it shows Automatic and magpie's own pick; its
 picker offers Automatic first, each provider that can search by its small
-model, and each of its models, but never a relay said to search, whose names
-the row gives with why. A model picked is saved as `searcher:
+model, and each of its models, including a relay said to search; the row says
+those relays are never picked automatically and why. A model picked is saved as `searcher:
 "<provider>/<model>"`, a provider by its small model as `searcher:
 "<provider>"`, and shown; another setting saved still sends the pick; one
 named that magpie can't use (turned off) is said in the row with magpie's

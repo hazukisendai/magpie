@@ -299,7 +299,7 @@ type settingsJSON struct {
 	SearchProvider string             `json:"searchProvider,omitempty"`
 	// the providers Settings' Searcher may name, the one magpie picks when
 	// it names none, why the one it names isn't used (gateway.Searcher*),
-	// and the relays said to search that are never asked to (#359)
+	// and the relays said to search that are never picked automatically (#359)
 	SearchChoices []searchChoiceJSON `json:"searchChoices"`
 	SearchAuto    string             `json:"searchAuto,omitempty"`
 	SearchUnused  string             `json:"searchUnused,omitempty"`

@@ -5536,7 +5536,7 @@ function drawEditor(p, presetID) {
   if (custom) {
     const [stk, scb] = tick(t("Searches the web by itself"), !!draft.searches);
     scb.onchange = () => { draft.searches = scb.checked; };
-    const row = field(t("Web search"), stk, t("For a relay in front of Anthropic's or OpenAI's own API: Claude Code's WebSearch and Codex's web_search go to it as they were sent, not through magpie's search. magpie doesn't search with it for other models."));
+    const row = field(t("Web search"), stk, t("For a relay in front of Anthropic's or OpenAI's own API: Claude Code's WebSearch and Codex's web_search go to it as they were sent, not through magpie's search. magpie doesn't automatically search with it for other models, but you can name it as the searcher."));
     showSearch = () => { for (const e of row) e.style.display = searchable() ? "" : "none"; };
     showSearch();
     ed.append(...row);
@@ -13754,8 +13754,8 @@ function renderSearch(s, keep) {
 // renderSearcher: the provider that searches the web for a model that
 // can't — the one magpie picks, or one named, by itself (its small model)
 // or with a model of it. One named that is gone, off or can't search gives
-// way to magpie's pick, which the row says. Relays said to search aren't
-// offered (#359), and the row says why when there are some.
+// way to magpie's pick, which the row says. Relays said to search can be
+// named, but are never picked automatically (#359), and the row says so.
 function renderSearcher(s, keep, box) {
   const choices = s.searchChoices || [];
   const v = s.searcher || "";
@@ -13776,7 +13776,7 @@ function renderSearcher(s, keep, box) {
     sub.append(" · ", el("span", "warn searcher-unused", t("{who} isn't used: {why}, so magpie picks one", { who: named(v), why })));
   }
   if (s.searchRelays?.length) sub.append(" · ", el("span", "searcher-relays",
-    t("Relays said to search ({names}) aren't offered: they would spend the relay's quota on other models' searches, and many refuse magpie's own requests", { names: s.searchRelays.join(", ") })));
+    t("Relays said to search ({names}) are never picked automatically: they would spend the relay's quota on other models' searches, and many refuse magpie's own requests", { names: s.searchRelays.join(", ") })));
   who.append(el("div", "name", t("Searches for other models")), sub);
   const b = el("button", "rt-cond on searcher-pick");
   b.type = "button";

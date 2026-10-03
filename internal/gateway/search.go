@@ -109,12 +109,11 @@ func searcher() (provider.Provider, string, bool) {
 }
 
 // searchRank is where a provider comes among those that can search for a
-// model that can't, -1 when it can't. A relay said to search is left out:
-// it would spend the relay's quota on other models' searches, and one that
-// serves only Claude Code refuses magpie's own request, which has no
-// metadata.user_id (#359).
+// model that can't, -1 when it can't. A relay said to search can be named,
+// but is not picked by itself: it would spend the relay's quota on other
+// models' searches, and one that serves only Claude Code refuses magpie's
+// own request, which has no metadata.user_id (#359).
 func searchRank(p provider.Provider) int {
-	p.Searches = false
 	switch {
 	case p.Account != nil && p.Account.Agent == "claude":
 		return 0
@@ -137,6 +136,9 @@ func autoSearcher() (provider.Provider, string, bool) {
 	var model string
 	top := -1
 	for _, p := range provider.All() {
+		if p.Searches {
+			continue
+		}
 		r := searchRank(p)
 		if r < 0 || !p.On() || (top >= 0 && r >= top) {
 			continue
@@ -223,11 +225,12 @@ type SearcherChoice struct {
 }
 
 // RelaysSaidToSearch are the providers on that are said to search by
-// themselves but are never asked to search for another model (#359).
+// themselves but are never picked to search for another model by magpie
+// itself (#359).
 func RelaysSaidToSearch() []provider.Provider {
 	var out []provider.Provider
 	for _, p := range provider.All() {
-		if p.Searches && p.On() && searchRank(p) < 0 {
+		if p.Searches && p.On() {
 			out = append(out, p)
 		}
 	}

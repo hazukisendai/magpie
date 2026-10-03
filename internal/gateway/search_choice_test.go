@@ -81,8 +81,8 @@ func TestSearcherChosen(t *testing.T) {
 	for _, c := range Searchers() {
 		ids = append(ids, c.Provider.ID)
 	}
-	// the relay said to search is never offered (#359), nor one that can't
-	if len(ids) != 2 || ids[0] != "ant" || ids[1] != "oai" {
+	// a relay said to search can be named, but never picked by itself (#359)
+	if len(ids) != 3 || ids[0] != "ant" || ids[1] != "relay" || ids[2] != "oai" {
 		t.Errorf("searchers = %v", ids)
 	}
 	if rs := RelaysSaidToSearch(); len(rs) != 1 || rs[0].ID != "relay" {
@@ -102,10 +102,12 @@ func TestSearcherChosen(t *testing.T) {
 	choose("oai/gpt-4")
 	want("oai", "gpt-5-mini", "")
 
-	// one that can't search, a relay said to, one gone: magpie's pick
-	choose("plain")
-	want("ant", "claude-haiku-4-5", SearcherCant)
+	// a relay said to search, named with a model of it
 	choose("relay/claude-haiku-4-5")
+	want("relay", "claude-haiku-4-5", "")
+
+	// one that can't search, one gone: magpie's pick
+	choose("plain")
 	want("ant", "claude-haiku-4-5", SearcherCant)
 	choose("nobody/x")
 	want("ant", "claude-haiku-4-5", SearcherGone)
@@ -120,6 +122,13 @@ func TestSearcherChosen(t *testing.T) {
 		t.Fatal(err)
 	}
 	want("oai", "gpt-5-mini", "")
+	if err := provider.SetOff("ant", true); err != nil {
+		t.Fatal(err)
+	}
+	want("oai", "gpt-5-mini", "")
+	if err := provider.SetOff("ant", false); err != nil {
+		t.Fatal(err)
+	}
 
 	// automatic again
 	choose("")
