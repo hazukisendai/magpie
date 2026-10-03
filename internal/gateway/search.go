@@ -109,11 +109,12 @@ func searcher() (provider.Provider, string, bool) {
 }
 
 // searchRank is where a provider comes among those that can search for a
-// model that can't, -1 when it can't. A relay said to search can be named,
-// but is not picked by itself: it would spend the relay's quota on other
-// models' searches, and one that serves only Claude Code refuses magpie's
-// own request, which has no metadata.user_id (#359).
+// model that can't, -1 when it can't. A relay said to search is left out:
+// it would spend the relay's quota on other models' searches, and one that
+// serves only Claude Code refuses magpie's own request, which has no
+// metadata.user_id (#359).
 func searchRank(p provider.Provider) int {
+	p.Searches = false
 	switch {
 	case p.Account != nil && p.Account.Agent == "claude":
 		return 0
@@ -129,6 +130,22 @@ func searchRank(p provider.Provider) int {
 	return -1
 }
 
+// manualRelayRank is after every provider magpie picks or falls back to by
+// itself: a relay said to search is offered only to be named (#359).
+const manualRelayRank = 5
+
+// namedSearcherRank is searchRank as Settings may name it: a relay said to
+// search on Anthropic's or Responses' API comes last, and only by hand.
+func namedSearcherRank(p provider.Provider) (int, bool) {
+	if r := searchRank(p); r >= 0 {
+		return r, false
+	}
+	if p.Searches && (searchesItself(p, provider.Anthropic) || searchesItself(p, provider.Responses)) {
+		return manualRelayRank, true
+	}
+	return -1, false
+}
+
 // autoSearcher is the searcher magpie picks by itself: the first by
 // searchRank that is on, with its small model.
 func autoSearcher() (provider.Provider, string, bool) {
@@ -136,9 +153,6 @@ func autoSearcher() (provider.Provider, string, bool) {
 	var model string
 	top := -1
 	for _, p := range provider.All() {
-		if p.Searches {
-			continue
-		}
 		r := searchRank(p)
 		if r < 0 || !p.On() || (top >= 0 && r >= top) {
 			continue
@@ -173,10 +187,11 @@ func chosenSearcher() (*provider.Provider, string, string) {
 		return nil, "", SearcherGone
 	}
 	p := provider.All()[i]
+	r, _ := namedSearcherRank(p)
 	switch {
 	case !p.On():
 		return &p, "", SearcherOff
-	case searchRank(p) < 0:
+	case r < 0:
 		return &p, "", SearcherCant
 	}
 	if model != "" && slices.ContainsFunc(p.Available(), func(m catalog.Model) bool { return m.ID == model }) {
@@ -191,13 +206,13 @@ func chosenSearcher() (*provider.Provider, string, string) {
 	return &p, "", SearcherNoneOf
 }
 
-// Searchers are the providers Settings' Searcher may name: those on that
-// can search for a model that can't, in the order magpie would pick them,
-// each with the model it would search with.
+// Searchers are the providers Settings' Searcher may name: those magpie
+// would pick, then relays said to search, each with the model it would
+// search with.
 func Searchers() []SearcherChoice {
 	var out []SearcherChoice
 	for _, p := range provider.All() {
-		r := searchRank(p)
+		r, manualOnly := namedSearcherRank(p)
 		if r < 0 || !p.On() {
 			continue
 		}
@@ -210,7 +225,7 @@ func Searchers() []SearcherChoice {
 		if len(ms) == 0 {
 			continue
 		}
-		out = append(out, SearcherChoice{Provider: p, Small: smallModel(p, nil), Models: ms, rank: r})
+		out = append(out, SearcherChoice{Provider: p, Small: smallModel(p, nil), Models: ms, rank: r, ManualOnly: manualOnly})
 	}
 	slices.SortStableFunc(out, func(a, b SearcherChoice) int { return cmp.Compare(a.rank, b.rank) })
 	return out
@@ -218,19 +233,20 @@ func Searchers() []SearcherChoice {
 
 // SearcherChoice is a provider Settings' Searcher may name.
 type SearcherChoice struct {
-	Provider provider.Provider
-	Small    string // the model it searches with when none is named
-	Models   []catalog.Model
-	rank     int
+	Provider   provider.Provider
+	Small      string // the model it searches with when none is named
+	Models     []catalog.Model
+	rank       int
+	ManualOnly bool // a relay said to search, which only Settings may name
 }
 
 // RelaysSaidToSearch are the providers on that are said to search by
-// themselves but are never picked to search for another model by magpie
-// itself (#359).
+// themselves but are not asked for another model unless Settings names them
+// (#359).
 func RelaysSaidToSearch() []provider.Provider {
 	var out []provider.Provider
 	for _, p := range provider.All() {
-		if p.Searches && p.On() {
+		if p.Searches && p.On() && searchRank(p) < 0 {
 			out = append(out, p)
 		}
 	}
@@ -335,6 +351,9 @@ func (s *Server) modelSearch(ctx context.Context, query string) (string, []Hit, 
 	tried := []pick{{p.ID, model}}
 	said, hits, err := s.searchWith(ctx, p, model, query)
 	for _, c := range Searchers() {
+		if c.ManualOnly {
+			continue
+		}
 		if err == nil || ctx.Err() != nil || len(tried) >= searchersInTurn {
 			break
 		}

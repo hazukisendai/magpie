@@ -26,8 +26,8 @@ const choices = [
     { id: "relay/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "relay", providerName: "MyRelay" }] },
 ];
 const words = {
-  en: { name: "Searches for other models", auto: "Automatic", small: "gpt-5-mini, its small model", unused: "isn't used: it is turned off", relays: "Relays said to search (MyRelay) are never picked automatically" },
-  zh: { name: "代搜供应商", auto: "自动", small: "gpt-5-mini（它的小模型）", unused: "没有用 OpenAI · gpt-5-mini：它已关闭", relays: "标为能搜索的中转站（MyRelay）不会被自动选择" },
+  en: { name: "Searches for other models", auto: "Automatic", small: "gpt-5-mini, its small model", unused: "isn't used: it is turned off", relays: "Relays said to search (MyRelay) are never picked automatically: they would spend the relay's quota on other models' searches; if one refuses magpie's own request, magpie falls back" },
+  zh: { name: "代搜供应商", auto: "自动", small: "gpt-5-mini（它的小模型）", unused: "没有用 OpenAI · gpt-5-mini：它已关闭", relays: "标为能搜索的中转站（MyRelay）不会被自动选择：它们会为别的模型的搜索花掉中转站的额度；如果它拒绝 magpie 自己发出的请求，magpie 会退回其他选择" },
 };
 
 function serve(lang, posted, st) {

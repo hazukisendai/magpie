@@ -13776,7 +13776,7 @@ function renderSearcher(s, keep, box) {
     sub.append(" · ", el("span", "warn searcher-unused", t("{who} isn't used: {why}, so magpie picks one", { who: named(v), why })));
   }
   if (s.searchRelays?.length) sub.append(" · ", el("span", "searcher-relays",
-    t("Relays said to search ({names}) are never picked automatically: they would spend the relay's quota on other models' searches, and many refuse magpie's own requests", { names: s.searchRelays.join(", ") })));
+    t("Relays said to search ({names}) are never picked automatically: they would spend the relay's quota on other models' searches; if one refuses magpie's own request, magpie falls back", { names: s.searchRelays.join(", ") })));
   who.append(el("div", "name", t("Searches for other models")), sub);
   const b = el("button", "rt-cond on searcher-pick");
   b.type = "button";

@@ -41,7 +41,7 @@ func TestSearcherChosen(t *testing.T) {
 		t.Cleanup(func() { searchHosts[proto] = hosts })
 	}
 	for _, p := range []provider.Provider{
-		{ID: "ant", Name: "Anthropic", Key: "k", Anthropic: ant},
+		{ID: "ant", Name: "Anthropic", Key: "k", Searches: true, Anthropic: ant},
 		{ID: "oai", Name: "OpenAI", Key: "k", Responses: oai + "/v1"},
 		{ID: "relay", Name: "Relay", Key: "k", Searches: true, Anthropic: lists("claude-haiku-4-5")},
 		{ID: "plain", Name: "Plain", Key: "k", Chat: lists("m1") + "/v1"},
@@ -81,9 +81,15 @@ func TestSearcherChosen(t *testing.T) {
 	for _, c := range Searchers() {
 		ids = append(ids, c.Provider.ID)
 	}
-	// a relay said to search can be named, but never picked by itself (#359)
-	if len(ids) != 3 || ids[0] != "ant" || ids[1] != "relay" || ids[2] != "oai" {
+	// a host that searches stays ahead of OpenAI even with its box ticked;
+	// a relay said to search comes last, for naming alone (#359)
+	if len(ids) != 3 || ids[0] != "ant" || ids[1] != "oai" || ids[2] != "relay" {
 		t.Errorf("searchers = %v", ids)
+	}
+	for _, c := range Searchers() {
+		if (c.Provider.ID == "relay") != c.ManualOnly {
+			t.Errorf("%s manual-only = %v", c.Provider.ID, c.ManualOnly)
+		}
 	}
 	if rs := RelaysSaidToSearch(); len(rs) != 1 || rs[0].ID != "relay" {
 		t.Errorf("relays = %v", rs)

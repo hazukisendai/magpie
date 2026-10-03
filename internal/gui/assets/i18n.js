@@ -344,7 +344,7 @@ const I18N = {
     "it can't search the web by itself": "它自己不能联网搜索",
     "it lists no model": "它没有列出模型",
     "{who} isn't used: {why}, so magpie picks one": "没有用 {who}：{why}，改由 magpie 自动选择",
-    "Relays said to search ({names}) are never picked automatically: they would spend the relay's quota on other models' searches, and many refuse magpie's own requests": "标为能搜索的中转站（{names}）不会被自动选择：它们会为别的模型的搜索花掉中转站的额度，而且很多会拒绝 magpie 自己发出的请求",
+    "Relays said to search ({names}) are never picked automatically: they would spend the relay's quota on other models' searches; if one refuses magpie's own request, magpie falls back": "标为能搜索的中转站（{names}）不会被自动选择：它们会为别的模型的搜索花掉中转站的额度；如果它拒绝 magpie 自己发出的请求，magpie 会退回其他选择",
     "API key, if it needs one": "API 密钥（如需要）",
     "your own": "自建",
     "needs its key": "缺少密钥",
