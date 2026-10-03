@@ -14622,7 +14622,7 @@ function renderSearcher(s, keep, box) {
     const c = choices.find((x) => x.id === pid);
     if (!c) return id;
     if (c.service) return `${c.name} · ${t("its web search")}`;
-    if (!rest.length) return `${c.name} · ${c.small}`;
+    if (!rest.length) return `${c.name} · ${c.smallName || c.small}`;
     const m = c.models.find((x) => x.id === id);
     return `${m ? m.name : rest.join("/")} · ${c.name}`;
   };
@@ -14654,7 +14654,7 @@ function renderSearcher(s, keep, box) {
       options.push({ value: c.id, label: t("its web search"), note: c.name, icon: c.icon, group: c.name });
       continue;
     }
-    options.push({ value: c.id, label: t("{model}, its small model", { model: c.small }), note: c.name, icon: c.icon, group: c.name });
+    options.push({ value: c.id, label: t("{model}, its small model", { model: c.smallName || c.small }), note: c.name, icon: c.icon, group: c.name });
     for (const m of c.models) options.push({ value: m.id, label: m.name || m.id, note: c.name, icon: c.icon, group: c.name, ref: m.id });
   }
   b.onclick = (ev) => openPicker({ id: "", name: "", fields: [] }, { key: "searcher", label: "model", value: v, options,

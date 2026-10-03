@@ -58,6 +58,9 @@ func searcherName(p provider.Provider, model string) string {
 	if model == "" {
 		return p.Name
 	}
+	if e, ok := provider.ServedEntryOf(p.ID + "/" + model); ok && e.Name != "" {
+		model = e.Name
+	}
 	return p.Name + " · " + model
 }
 
@@ -65,7 +68,7 @@ func searcherName(p provider.Provider, model string) string {
 // when Settings names none, "" when none can.
 func AutoSearcher() string {
 	if p, m, ok := autoSearcher(); ok {
-		return p.Name + " · " + m
+		return searcherName(p, m)
 	}
 	return ""
 }

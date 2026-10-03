@@ -350,11 +350,12 @@ type searchAPIJSON struct {
 // searchChoiceJSON is a provider that can search for a model that can't,
 // with the model it searches with when none is named, and its models.
 type searchChoiceJSON struct {
-	ID     string     `json:"id"`
-	Name   string     `json:"name"`
-	Icon   string     `json:"icon,omitempty"`
-	Small  string     `json:"small"`
-	Models []modelRef `json:"models"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Icon      string     `json:"icon,omitempty"`
+	Small     string     `json:"small"`
+	SmallName string     `json:"smallName,omitempty"`
+	Models    []modelRef `json:"models"`
 	// Service is a Kimi Code plan, which searches by its search service:
 	// named by itself, with no model
 	Service bool `json:"service,omitempty"`
@@ -368,6 +369,10 @@ type searchVendorJSON struct {
 }
 
 func searchState(s *settingsJSON) {
+	names := map[string]string{}
+	for _, e := range provider.Served() {
+		names[e.ID] = cmp.Or(e.Name, e.Model)
+	}
 	s.SearchAPIs, s.SearchVendors = []searchAPIJSON{}, []searchVendorJSON{}
 	for _, a := range provider.StoredSearchAPIs() {
 		j := searchAPIJSON{Vendor: a.Vendor, Name: a.Name(), URL: a.URL, Ready: a.Ready()}
@@ -384,9 +389,10 @@ func searchState(s *settingsJSON) {
 	s.SearchChoices = []searchChoiceJSON{}
 	for _, c := range gateway.Searchers() {
 		p := c.Provider
-		j := searchChoiceJSON{ID: p.ID, Name: p.Name, Icon: p.Icon, Small: c.Small, Models: []modelRef{}, Service: c.Service}
+		j := searchChoiceJSON{ID: p.ID, Name: p.Name, Icon: p.Icon, Small: c.Small, SmallName: names[p.ID+"/"+c.Small], Models: []modelRef{}, Service: c.Service}
 		for _, m := range c.Models {
-			j.Models = append(j.Models, modelRef{ID: p.ID + "/" + m.ID, Name: cmp.Or(m.Name, m.ID), Provider: p.ID, PName: p.Name, Icon: p.Icon})
+			id := p.ID + "/" + m.ID
+			j.Models = append(j.Models, modelRef{ID: id, Name: cmp.Or(names[id], m.Name, m.ID), Provider: p.ID, PName: p.Name, Icon: p.Icon})
 		}
 		s.SearchChoices = append(s.SearchChoices, j)
 	}

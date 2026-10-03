@@ -21,17 +21,17 @@ const choices = [
   { id: "claude", name: "Claude", icon: "claude", small: "claude-haiku-4-5", models: [
     { id: "claude/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "claude", providerName: "Claude" },
     { id: "claude/claude-opus-4-5", name: "Claude Opus 4.5", provider: "claude", providerName: "Claude" }] },
-  { id: "openai", name: "OpenAI", icon: "openai", small: "gpt-5-mini", models: [
+  { id: "openai", name: "OpenAI", icon: "openai", small: "gpt-5-mini", smallName: "GPT-5 Mini Named", models: [
     { id: "openai/gpt-5-mini", name: "GPT-5 mini", provider: "openai", providerName: "OpenAI" },
-    { id: "openai/gpt-5.5", name: "GPT-5.5", provider: "openai", providerName: "OpenAI" }] },
+    { id: "openai/gpt-5.5", name: "GPT Five Five", provider: "openai", providerName: "OpenAI" }] },
   { id: "relay", name: "MyRelay", icon: "generic", small: "claude-haiku-4-5", models: [
     { id: "relay/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "relay", providerName: "MyRelay" }] },
   { id: "kimi", name: "Kimi Code", icon: "kimi", small: "", models: [], service: true },
 ];
 const words = {
-  en: { name: "Searches for other models", auto: "Automatic", small: "gpt-5-mini, its small model", unused: "isn't used: it is turned off", relays: "Relays said to search (MyRelay) are never picked automatically: they would spend the relay's quota on other models' searches; if one refuses magpie's own request, magpie falls back",
+  en: { name: "Searches for other models", auto: "Automatic", small: "GPT-5 Mini Named, its small model", unused: "isn't used: it is turned off", relays: "Relays said to search (MyRelay) are never picked automatically: they would spend the relay's quota on other models' searches; if one refuses magpie's own request, magpie falls back",
     own: "A Kimi Code plan (Kimi Code) searches for its own models first, with its web search; for other models only when named here", web: "its web search" },
-  zh: { name: "代搜供应商", auto: "自动", small: "gpt-5-mini（它的小模型）", unused: "没有用 OpenAI · gpt-5-mini：它已关闭", relays: "标为能搜索的中转站（MyRelay）不会被自动选择：它们会为别的模型的搜索花掉中转站的额度；如果它拒绝 magpie 自己发出的请求，magpie 会退回其他选择",
+  zh: { name: "代搜供应商", auto: "自动", small: "GPT-5 Mini Named（它的小模型）", unused: "没有用 OpenAI · gpt-5-mini：它已关闭", relays: "标为能搜索的中转站（MyRelay）不会被自动选择：它们会为别的模型的搜索花掉中转站的额度；如果它拒绝 magpie 自己发出的请求，magpie 会退回其他选择",
     own: "Kimi Code 套餐（Kimi Code）的模型先用套餐自带的联网搜索；别的模型只有在这里选了它才用", web: "它自带的联网搜索" },
 };
 
@@ -100,18 +100,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.locator("#pop").waitFor({ state: "visible" });
       const items = await page.locator("#list li:not(.group)").allInnerTexts();
       assert(items[0].includes(w.auto), "Automatic comes first");
-      assert(items.some((x) => x.includes("GPT-5.5")) && items.some((x) => x.includes("Claude Opus 4.5")));
+      assert(items.some((x) => x.includes("GPT Five Five")) && items.some((x) => x.includes("Claude Opus 4.5")));
       assert(items.some((x) => x.includes("MyRelay")), "a relay said to search can be named");
-      await click(page.locator("#list li:not(.group)", { hasText: "GPT-5.5" }));
-      await page.waitForFunction(() => document.querySelector("#searchList button.searcher-pick")?.innerText.includes("GPT-5.5"));
+      await click(page.locator("#list li:not(.group)", { hasText: "GPT Five Five" }));
+      await page.waitForFunction(() => document.querySelector("#searchList button.searcher-pick")?.innerText.includes("GPT Five Five"));
       assert.equal(posted.at(-1).searcher, "openai/gpt-5.5");
-      assert.equal(await row.locator("button.searcher-pick").innerText(), "GPT-5.5 · OpenAI");
+      assert.equal(await row.locator("button.searcher-pick").innerText(), "GPT Five Five · OpenAI");
 
       // a provider, by its small model
       await click(row.locator("button.searcher-pick"));
       await page.locator("#pop").waitFor({ state: "visible" });
       await click(page.locator("#list li:not(.group)", { hasText: w.small }));
-      await page.waitForFunction(() => document.querySelector("#searchList button.searcher-pick")?.innerText === "OpenAI · gpt-5-mini");
+      await page.waitForFunction(() => document.querySelector("#searchList button.searcher-pick")?.innerText === "OpenAI · GPT-5 Mini Named");
       assert.equal(posted.at(-1).searcher, "openai");
 
       // a Kimi Code plan, by its web search: no model of it is offered
@@ -130,7 +130,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await click(row.locator("button.searcher-pick"));
       await page.locator("#pop").waitFor({ state: "visible" });
       await click(page.locator("#list li:not(.group)", { hasText: w.small }));
-      await page.waitForFunction(() => document.querySelector("#searchList button.searcher-pick")?.innerText === "OpenAI · gpt-5-mini");
+      await page.waitForFunction(() => document.querySelector("#searchList button.searcher-pick")?.innerText === "OpenAI · GPT-5 Mini Named");
 
       // another setting saved keeps the pick
       const n = posted.length;
