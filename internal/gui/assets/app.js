@@ -61,6 +61,8 @@ let decideModel = localStorage.getItem("magpie.decideModel") || ""; // the Syste
 let connectFolded = false; // Connect folded away under its heading
 try { connectFolded = localStorage.getItem("magpie.gwConnectFolded") === "1"; } catch {}
 const expandedCalls = new Set(); // recent-call ids whose wire bodies are open
+const CALLS_PAGE = 20;
+let callsShown = CALLS_PAGE; // recent calls drawn a page at a time
 // a streamed reply's body is read as its reply, its events or as it came;
 // the pick is one for every call and kept, the events drawn per call
 let sseView = "events";
@@ -5461,7 +5463,7 @@ function renderActivity() {
   for (const item of box.querySelectorAll(".call-item[data-id]")) kept.set(item.dataset.id, [...item.querySelectorAll("pre")].map((p) => p.scrollTop));
   box.replaceChildren();
   $("#callsNote").textContent = g.running && !g.mine ? t("shown by the magpie that serves the gateway") : "";
-  const calls = g.calls.slice(0, 20);
+  const calls = g.calls.slice(0, callsShown);
   if (!calls.length) { box.append(el("div", "none", t("No requests yet. Point an agent at a model, or run the example above; every call shows up here as it happens."))); return; }
   for (const c of calls) {
     const id = `${c.time}|${c.agent}|${c.model}`;
@@ -5500,6 +5502,15 @@ function renderActivity() {
       item.append(details);
     }
     box.append(item);
+  }
+  if (g.calls.length > calls.length) {
+    const more = el("button", "text activity-more");
+    more.textContent = t("Show {n} more", { n: Math.min(CALLS_PAGE, g.calls.length - calls.length) });
+    more.onclick = () => {
+      callsShown = Math.min(g.calls.length, callsShown + CALLS_PAGE);
+      renderActivity();
+    };
+    box.append(more);
   }
   for (const item of box.querySelectorAll(".call-item[data-id]")) {
     const tops = kept.get(item.dataset.id) || [];
