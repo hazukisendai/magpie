@@ -52,8 +52,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     assert.equal(await rows.count(), 20, "the first page");
     const more = page.locator("#activity .activity-more");
     assert.equal(await more.textContent(), "Show 20 more");
+    // reach it as a reader does, with the wheel: the page holds its scroll
+    // against a scroll nobody asked for, which a locator's click would be
+    await page.mouse.move(450, 300);
+    for (let i = 0; i < 10 && !(await more.evaluate((b) => b.getBoundingClientRect().bottom <= innerHeight)); i++) await page.mouse.wheel(0, 300);
+    const top = () => page.evaluate(() => document.querySelector("#view-gateway").scrollTop);
+    const before = await top();
     await more.click();
     assert.equal(await rows.count(), 40, "every call the gateway keeps");
+    assert.equal(await top(), before, "the click doesn't move the page");
     assert.equal(await page.locator("#activity .activity-more").count(), 0, "no button past the end");
     assert.deepEqual(errors, []);
   });
