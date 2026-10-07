@@ -379,6 +379,13 @@ type Settings struct {
 	// ModelImages is whether the user said a model takes images, by
 	// "<provider id>/<model id>". Absent leaves it to the vendor's list.
 	ModelImages map[string]bool `json:"modelImages,omitempty"`
+	// ModelSearches is whether the user said a model searches the web by
+	// itself — its vendor answers a web search offered to it, on the APIs
+	// that take one — by "<provider id>/<model id>", and "*" for every
+	// model of that provider. Absent leaves it to the rules magpie knows
+	// the vendor by: a relay said to search (Provider.Searches), the
+	// vendor's host, a signed-in account, a Remote magpie's own list.
+	ModelSearches map[string]bool `json:"modelSearches,omitempty"`
 	// ModelPrices is what a model costs the user, in USD per million
 	// tokens, by "<provider id>/<model id>", and "*" for every model of
 	// that provider: a provider models.dev does not list, or one that

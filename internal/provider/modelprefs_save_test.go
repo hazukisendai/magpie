@@ -21,15 +21,15 @@ func TestSetModelPrefs(t *testing.T) {
 	t.Cleanup(func() { catalog.Changed = nil })
 	name, yes := "My Sol", true
 	efforts := []string{"low", "high"}
-	if err := SetModelPrefs("a", map[string]ModelPref{"sol": {Name: &name, Efforts: &efforts, Images: &yes}}); err != nil {
+	if err := SetModelPrefs("a", map[string]ModelPref{"sol": {Name: &name, Efforts: &efforts, Images: &yes, Search: &yes}}); err != nil {
 		t.Fatal(err)
 	}
 	if touched != 1 {
 		t.Fatalf("agents told %d times, want once", touched)
 	}
 	s := settings.Load()
-	if s.ModelNames["a/sol"] != "My Sol" || !slices.Equal(s.ModelEfforts["a/sol"], efforts) || !s.ModelImages["a/sol"] {
-		t.Fatalf("names %v, efforts %v, images %v", s.ModelNames, s.ModelEfforts, s.ModelImages)
+	if s.ModelNames["a/sol"] != "My Sol" || !slices.Equal(s.ModelEfforts["a/sol"], efforts) || !s.ModelImages["a/sol"] || !s.ModelSearches["a/sol"] {
+		t.Fatalf("names %v, efforts %v, images %v, searches %v", s.ModelNames, s.ModelEfforts, s.ModelImages, s.ModelSearches)
 	}
 	if _, ok := s.ModelNames["b/sol"]; ok {
 		t.Fatal("b's sol was named too")
@@ -40,12 +40,12 @@ func TestSetModelPrefs(t *testing.T) {
 	}
 	// Restore default: its own name, every level, the vendor's answer
 	own, all := "", []string{}
-	if err := SetModelPrefs("a", map[string]ModelPref{"sol": {Name: &own, Efforts: &all, OwnImages: true}}); err != nil {
+	if err := SetModelPrefs("a", map[string]ModelPref{"sol": {Name: &own, Efforts: &all, OwnImages: true, OwnSearch: true}}); err != nil {
 		t.Fatal(err)
 	}
 	s = settings.Load()
-	if len(s.ModelNames)+len(s.ModelEfforts)+len(s.ModelImages) != 0 || touched != 2 {
-		t.Fatalf("names %v, efforts %v, images %v, told %d times", s.ModelNames, s.ModelEfforts, s.ModelImages, touched)
+	if len(s.ModelNames)+len(s.ModelEfforts)+len(s.ModelImages)+len(s.ModelSearches) != 0 || touched != 2 {
+		t.Fatalf("names %v, efforts %v, images %v, searches %v, told %d times", s.ModelNames, s.ModelEfforts, s.ModelImages, s.ModelSearches, touched)
 	}
 	// a level it hasn't is refused, the change before it still told
 	bad := []string{"xhigh"}

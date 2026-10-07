@@ -357,6 +357,51 @@ func setModelImage(ref string, images *bool) (bool, error) {
 	return true, nil
 }
 
+// SetModelSearch says whether a provider's model searches the web by
+// itself — its vendor answers a web search offered to it, on the APIs that
+// take one — in place of what magpie's own rules say of the vendor (a relay
+// said to search, the vendor's host, a signed-in account, a Remote magpie's
+// list). nil gives the user's answer back. The model is spelt
+// "provider/model", or "provider/*" for every model of that provider; a
+// model the provider does not serve is refused where images are, and a
+// removal may name one that has since gone.
+func SetModelSearch(ref string, searches *bool) error {
+	return touchedIf(setModelSearch(ref, searches))
+}
+
+func setModelSearch(ref string, searches *bool) (bool, error) {
+	p, model, err := splitRef(ref)
+	if err != nil {
+		return false, err
+	}
+	key := p.ID + "/" + model
+	if err := settings.CheckModelKey("a web search answer", key); err != nil {
+		return false, err
+	}
+	if searches != nil && model != "*" && !p.serves(model) {
+		return false, fmt.Errorf("%s has no model %s (magpie provider %s lists them)", p.ID, model, p.ID)
+	}
+	s := settings.Load()
+	if searches == nil {
+		if _, ok := s.ModelSearches[key]; !ok {
+			return false, nil
+		}
+		delete(s.ModelSearches, key)
+	} else {
+		if cur, ok := s.ModelSearches[key]; ok && cur == *searches {
+			return false, nil
+		}
+		if s.ModelSearches == nil {
+			s.ModelSearches = map[string]bool{}
+		}
+		s.ModelSearches[key] = *searches
+	}
+	if err := settings.Save(s); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // SetModelAPI says which one of a provider's APIs a model is asked on —
 // chat, responses or anthropic — for a relay whose one key serves some of
 // its models on one and others on another (01huadalang on Discord: 有的供应商
@@ -426,11 +471,15 @@ func (p Provider) ModelAPI(model string) (Protocol, bool) {
 // provider has for it, Same "" its own id to merge it with other
 // vendors' by (see setModelSame), and OwnPrice its list price again in
 // place of Price, what the user said it costs (SetModelPrice, #819).
+// Search is whether the user says its vendor searches the web for it by
+// itself, and OwnSearch magpie's own rules again (SetModelSearch).
 type ModelPref struct {
 	Name      *string        `json:"name,omitempty"`
 	Efforts   *[]string      `json:"efforts,omitempty"`
 	Images    *bool          `json:"images,omitempty"`
 	OwnImages bool           `json:"ownImages,omitempty"`
+	Search    *bool          `json:"search,omitempty"`
+	OwnSearch bool           `json:"ownSearch,omitempty"`
 	API       *string        `json:"api,omitempty"`
 	Same      *string        `json:"same,omitempty"`
 	Price     *catalog.Price `json:"price,omitempty"`
@@ -438,7 +487,7 @@ type ModelPref struct {
 }
 
 // SetModelPrefs makes the changes to a provider's models, by model id, as
-// SetModelName, SetModelEfforts, SetModelImage, SetModelAPI and
+// SetModelName, SetModelEfforts, SetModelImage, SetModelSearch, SetModelAPI and
 // setModelSame do, and tells the agents
 // once, after them all, rather than once a change. It stops at the first
 // that fails, telling the agents of those made before it.
@@ -467,6 +516,15 @@ func SetModelPrefs(pid string, prefs map[string]ModelPref) error {
 					images = nil
 				}
 				if err := set(setModelImage(ref, images)); err != nil {
+					return err
+				}
+			}
+			if m.Search != nil || m.OwnSearch {
+				search := m.Search
+				if m.OwnSearch {
+					search = nil
+				}
+				if err := set(setModelSearch(ref, search)); err != nil {
 					return err
 				}
 			}
@@ -550,6 +608,25 @@ func ImageOverride(pid, model string) (bool, bool) {
 // many models reads them once, not for each (lml on Discord, Windows).
 func ImageOverrideIn(s settings.Settings, pid, model string) (bool, bool) {
 	v, ok := s.ModelImages[pid+"/"+model]
+	return v, ok
+}
+
+// SearchOverride is the user's answer for whether pid's model searches the
+// web by itself: the model's own key first, then the one given for every
+// model of the provider ("<provider id>/*"), which is what
+// settings.CheckModelKey lays out. The settings are read through
+// heldSettings, as the other per-model look-ups' are: the provider editor
+// asks this once for each of a provider's models.
+func SearchOverride(pid, model string) (bool, bool) {
+	return SearchOverrideIn(heldSettings(), pid, model)
+}
+
+// SearchOverrideIn is SearchOverride from settings s already read.
+func SearchOverrideIn(s settings.Settings, pid, model string) (bool, bool) {
+	if v, ok := s.ModelSearches[pid+"/"+model]; ok {
+		return v, true
+	}
+	v, ok := s.ModelSearches[pid+"/*"]
 	return v, ok
 }
 

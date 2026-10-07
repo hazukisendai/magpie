@@ -6705,8 +6705,8 @@ function priceTypedError(ed) {
   return true;
 }
 
-// modelPrefsOfDraft: the names, levels and images staged in the editor's
-// Names & levels, for its Save, or nothing when none changed.
+// modelPrefsOfDraft: the names, levels, images and web searches staged in
+// the editor's Names & levels, for its Save, or nothing when none changed.
 function modelPrefsOfDraft() {
   const x = draft?.modelPrefs;
   return x && Object.keys(x).length ? x : undefined;
@@ -9165,6 +9165,7 @@ function renderModels(p) {
       const nameNow = () => prefs[id]?.name ?? savedName;
       const keptNow = () => prefs[id]?.efforts ? (prefs[id].efforts.length || m.given ? prefs[id].efforts : levels) : savedKept;
       const imagesNow = () => prefs[id]?.ownImages ? !!m.ownImages : prefs[id]?.images ?? !!m.images;
+      const searchNow = () => prefs[id]?.ownSearch ? !!m.ownSearches : prefs[id]?.search ?? !!m.searches;
       const row = el("div", "mname");
       const name = input(nameNow(), own);
       name.title = t("The name agents and magpie show for {id}; empty for its own", { id: m.id });
@@ -9335,6 +9336,21 @@ function renderModels(p) {
         drawReset();
       };
       row.append(img);
+      // whether a client's web search offered to this model goes to its
+      // vendor as sent, or magpie answers it with a searcher of its own:
+      // the same question the provider's own Searches tick asks, of one
+      // model, so a relay that only searches on some of its models can say
+      // which (the tool can only go out on an Anthropic or Responses API)
+      const [srch, srchCb] = tick(t("Searches the web by itself"), searchNow());
+      srch.title = t("Whether a web search offered to {id} goes to its vendor as sent, rather than magpie searching for it with another model. A vendor's own web search tool goes out on its Anthropic or Responses API", { id: m.id });
+      srchCb.onchange = () => {
+        const x = pref();
+        delete x.ownSearch;
+        if (srchCb.checked === !!m.searches) delete x.search;
+        else x.search = srchCb.checked;
+        drawReset();
+      };
+      row.append(srch);
       const apiNow = () => prefs[id]?.api ?? m.api ?? "";
       let apiSeg = null;
       if (apis.length || m.api) {
@@ -9379,15 +9395,17 @@ function renderModels(p) {
       const unsaved = el("span", "hint munsaved", t("unsaved"));
       unsaved.title = t("Made when the provider is saved; Cancel drops it");
       const reset = el("button", "text action", t("Restore default"));
-      reset.title = t("Its own name, every reasoning level it has, whether it sees images, the API it is asked on, the model it is the same as, and its list price");
+      reset.title = t("Its own name, every reasoning level it has, whether it sees images, whether it searches the web by itself, the API it is asked on, the model it is the same as, and its list price");
       reset.onclick = () => {
         prefs[id] = {};
         if (draft.priceTyped) delete draft.priceTyped[id];
         if (m.default) prefs[id].name = "";
         if (m.kept?.length) prefs[id].efforts = [];
         if (m.imageSet) prefs[id].ownImages = true;
+        if (m.searchSet) prefs[id].ownSearch = true;
         name.value = nameNow();
         imgCb.checked = imagesNow();
+        srchCb.checked = searchNow();
         for (const [l, cb] of boxes) cb.checked = keptNow().includes(l);
         if (m.api) prefs[id].api = "";
         if (m.same) prefs[id].same = "";
@@ -9403,7 +9421,8 @@ function renderModels(p) {
         unsaved.hidden = !prefs[id] && !draft.priceTyped?.[id];
         // staged back to its own already, there is nothing to restore
         const images = prefs[id]?.ownImages ? false : prefs[id]?.images !== undefined ? prefs[id].images !== !!m.ownImages : !!m.imageSet;
-        const custom = nameNow() !== "" || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || apiNow() !== "" || sameNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id];
+        const searches = prefs[id]?.ownSearch ? false : prefs[id]?.search !== undefined ? prefs[id].search !== !!m.ownSearches : !!m.searchSet;
+        const custom = nameNow() !== "" || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || searches || apiNow() !== "" || sameNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id];
         reset.hidden = !custom;
       };
       row.append(unsaved, reset);

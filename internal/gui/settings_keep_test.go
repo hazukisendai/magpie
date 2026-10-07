@@ -64,9 +64,10 @@ func TestSettingsSaveKeepsModelChoices(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(h, ".config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(h, ".cache"))
 	if err := settings.Save(settings.Settings{
-		ModelNames:   map[string]string{"p/m": "Mine"},
-		ModelEfforts: map[string][]string{"p/m": {"low"}},
-		ModelImages:  map[string]bool{"p/m": true},
+		ModelNames:    map[string]string{"p/m": "Mine"},
+		ModelEfforts:  map[string][]string{"p/m": {"low"}},
+		ModelImages:   map[string]bool{"p/m": true},
+		ModelSearches: map[string]bool{"p/m": true},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -76,8 +77,8 @@ func TestSettingsSaveKeepsModelChoices(t *testing.T) {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	s := settings.Load()
-	if s.Theme != "dark" || s.ModelNames["p/m"] != "Mine" || len(s.ModelEfforts["p/m"]) != 1 || !s.ModelImages["p/m"] {
-		t.Fatalf("theme %q names %v efforts %v images %v", s.Theme, s.ModelNames, s.ModelEfforts, s.ModelImages)
+	if s.Theme != "dark" || s.ModelNames["p/m"] != "Mine" || len(s.ModelEfforts["p/m"]) != 1 || !s.ModelImages["p/m"] || !s.ModelSearches["p/m"] {
+		t.Fatalf("theme %q names %v efforts %v images %v searches %v", s.Theme, s.ModelNames, s.ModelEfforts, s.ModelImages, s.ModelSearches)
 	}
 }
 
@@ -119,6 +120,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		ModelNames:          map[string]string{"p/m": "Mine"},
 		ModelEfforts:        map[string][]string{"p/m": {"low"}},
 		ModelImages:         map[string]bool{"p/m": true},
+		ModelSearches:       map[string]bool{"p/m": true},
 		ModelOutputs:        map[string]int{"p/m": 131072},
 		ModelCompacts:       map[string]int{"p/*": 500000},
 		CompactAt:           400000,

@@ -272,6 +272,74 @@ func TestModelImage(t *testing.T) {
 	}
 }
 
+// Whether a model searches the web by itself is the user's to say, by
+// "provider/model" and by "provider/*" for every model of a provider: the
+// model's own answer beats the provider's, a model the provider doesn't
+// serve can't be given one, and a reset goes by the key — so the
+// provider-wide answer is still in force over a model's own, and can be
+// taken away even when the provider is gone.
+func TestModelSearch(t *testing.T) {
+	prefsHome(t)
+	yes, no := true, false
+	if err := SetModelSearch("a/sol", &yes); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := SearchOverride("a", "sol"); !ok || !v {
+		t.Fatalf("a/sol = %v %v", v, ok)
+	}
+	if _, ok := SearchOverride("b", "sol"); ok {
+		t.Fatal("b/sol has an answer of its own")
+	}
+	// the same answer again is no change, and saving it again is not a
+	// change to tell the agents of
+	touched := 0
+	catalog.Changed = func() { touched++ }
+	t.Cleanup(func() { catalog.Changed = nil })
+	if err := SetModelSearch("a/sol", &yes); err != nil {
+		t.Fatal(err)
+	}
+	if touched != 0 {
+		t.Fatalf("agents told %d times over an answer that did not change", touched)
+	}
+	// the provider-wide answer applies to every model of it, and the
+	// model's own beats it
+	if err := SetModelSearch("a/*", &yes); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := SearchOverride("a", "mystery-7"); !ok || !v {
+		t.Fatalf("a/mystery-7 = %v %v", v, ok)
+	}
+	if err := SetModelSearch("a/sol", &no); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := SearchOverride("a", "sol"); !ok || v {
+		t.Fatalf("the model's own answer did not beat the provider's: %v %v", v, ok)
+	}
+	// a reset takes off the model's own answer only: what every model of
+	// the provider does still applies
+	if err := SetModelSearch("a/sol", nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := SearchOverride("a", "sol"); !ok || !v {
+		t.Fatalf("the provider-wide answer was taken off with it: %v %v", v, ok)
+	}
+	// a model the provider doesn't serve can't be given an answer, and a
+	// removal may still name one
+	if err := SetModelSearch("a/ghost", &yes); err == nil {
+		t.Fatal("a model the provider doesn't serve took an answer")
+	}
+	if err := SetModelSearch("a/ghost", nil); err != nil {
+		t.Fatal(err)
+	}
+	// the provider-wide answer goes by its key, and with it the last one
+	if err := SetModelSearch("a/*", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := SearchOverride("a", "sol"); ok {
+		t.Fatal("an answer stayed")
+	}
+}
+
 // Renaming a provider moves what the user gave its models in every
 // per-model map. The settings walk them by the convention themselves — each
 // map[string]X of Settings named Model*, the ones there are now and any

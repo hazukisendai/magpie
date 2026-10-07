@@ -104,6 +104,11 @@ func searchModel(model string) bool {
 // searchesFor is searchesItself for one request: a Google sign-in's Gemini
 // searches by itself only for a request without function tools.
 func searchesFor(p provider.Provider, proto provider.Protocol, model string, req *Request) bool {
+	if said, ok := provider.SearchOverride(p.ID, model); ok && !said {
+		// the user said this model doesn't search by itself: magpie's
+		// searcher does, whatever the vendor's rules say of it
+		return false
+	}
 	if searchesModel(p, proto, model) {
 		return true
 	}
@@ -111,9 +116,75 @@ func searchesFor(p provider.Provider, proto provider.Protocol, model string, req
 }
 
 // searchesModel is searchesItself for one model: a Remote magpie searches
-// for the models its list says it does, on any API (search_remote.go).
+// for the models its list says it does, on any API (search_remote.go). The
+// user's answer for the model (settings' ModelSearches) comes first: false
+// turns every other rule off, and true asks the vendor as sent on the APIs
+// a search tool can go out on (see searchesItselfFor).
 func searchesModel(p provider.Provider, proto provider.Protocol, model string) bool {
-	return searchesItself(p, proto) || proto != provider.Gemini && remoteSearch(p, model) != ""
+	if said, ok := provider.SearchOverride(p.ID, model); ok && !said {
+		return false
+	}
+	return searchesItselfFor(p, proto, model) || proto != provider.Gemini && remoteSearch(p, model) != ""
+}
+
+// searchesItselfFor is searchesItself for one model, with the user's answer
+// for it taken first: a model the user said searches by itself is asked as
+// sent on the APIs a search tool goes out on — Anthropic's and Responses',
+// as a relay said to search — even when its provider is not known to
+// search. On any other API the answer cannot be honored: magpie has no way
+// to offer that vendor a search (its Chat API has no such tool of
+// magpie's), so the model's own rules stand.
+func searchesItselfFor(p provider.Provider, proto provider.Protocol, model string) bool {
+	if searchesItself(p, proto) {
+		return true
+	}
+	if said, ok := provider.SearchOverride(p.ID, model); ok && said {
+		return (proto == provider.Anthropic || proto == provider.Responses) && p.Base(proto) != ""
+	}
+	return false
+}
+
+// SearchesByItself is whether a web search offered to p's model goes to its
+// vendor as sent, on any API p speaks (searchesModel, read once for the
+// provider editor's tick and for what magpie's own list tells another
+// magpie). The user's per-model answer comes first: false says magpie
+// searches for the model instead, whatever the vendor's rules would say.
+func SearchesByItself(p provider.Provider, model string) bool {
+	if said, ok := provider.SearchOverride(p.ID, model); ok && !said {
+		return false
+	}
+	if p.IsRemoteMagpie() && remoteSearch(p, model) == searchNative || codeAssistSearches(p, provider.CodeAssist, model) {
+		return true
+	}
+	for _, proto := range p.Speaks() {
+		if searchesModel(p, proto, model) {
+			return true
+		}
+	}
+	return false
+}
+
+// SearchPreference is how one of a provider's models stands on searching
+// the web by itself: Searches, the answer in force — the user's when they
+// gave one (Set), else Own — and Own, what magpie's own rules say before
+// the user's answer, which is what the editor's Restore default puts back.
+type SearchPreference struct {
+	Searches bool
+	Own      bool
+	Set      bool
+}
+
+// ModelSearch is SearchPreference for p's model, what the provider editor's
+// tick shows. Searches is the user's answer as they gave it, even where no
+// API of the provider takes a search tool, so a tick stays where it was put
+// and can be seen to be theirs; what a request does is searchesModel's to
+// say.
+func ModelSearch(p provider.Provider, model string) SearchPreference {
+	own := SearchesByItself(p, model)
+	if said, ok := provider.SearchOverride(p.ID, model); ok {
+		return SearchPreference{Searches: said, Own: own, Set: true}
+	}
+	return SearchPreference{Searches: own, Own: own}
 }
 
 // searchHosts are the APIs that search by themselves: OpenAI's, xAI's,
@@ -366,12 +437,10 @@ func smallModel(p provider.Provider, keep func(catalog.Model) bool) string {
 }
 
 // searcherModel is the model p searches with when none is named: its
-// small model, of those it can search with.
+// small model, of those it can search with — a model the user said doesn't
+// search by itself is never one.
 func searcherModel(p provider.Provider) string {
-	if googleAccount(p) || p.IsRemoteMagpie() {
-		return smallModel(p, func(m catalog.Model) bool { return searchableModel(p, m.ID) })
-	}
-	return smallModel(p, nil)
+	return smallModel(p, func(m catalog.Model) bool { return searchableModel(p, m.ID) })
 }
 
 // searchTool is the tool a model that can't search is given, under a name

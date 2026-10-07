@@ -50,10 +50,14 @@ func remoteSearchesAny(p provider.Provider) bool {
 	return p.IsRemoteMagpie() && slices.ContainsFunc(p.Available(), func(m catalog.Model) bool { return m.WebSearch == searchNative })
 }
 
-// searchableModel is a model of p that magpie may search with: a Gemini
-// on a Google sign-in, one a Remote magpie searches natively for, any
-// other provider's.
+// searchableModel is a model of p that magpie may search with: a model the
+// user said doesn't search the web by itself (settings' ModelSearches) is
+// never one, then a Gemini on a Google sign-in, one a Remote magpie
+// searches natively for, any other provider's.
 func searchableModel(p provider.Provider, model string) bool {
+	if v, ok := provider.SearchOverride(p.ID, model); ok && !v {
+		return false
+	}
 	switch {
 	case googleAccount(p):
 		return searchModel(model)
@@ -67,15 +71,8 @@ func searchableModel(p provider.Provider, model string) bool {
 // searches for e (remoteSearch): magpie is whether it has a searcher.
 func webSearchOf(e provider.Entry, magpie bool) string {
 	p := e.Provider
-	if e.Group == "" {
-		if p.IsRemoteMagpie() && remoteSearch(p, e.Model) == searchNative || codeAssistSearches(p, provider.CodeAssist, e.Model) {
-			return searchNative
-		}
-		for _, proto := range p.Speaks() {
-			if searchesItself(p, proto) {
-				return searchNative
-			}
-		}
+	if e.Group == "" && SearchesByItself(p, e.Model) {
+		return searchNative
 	}
 	if magpie || provider.KimiCodeSearch(p) != "" || googleAccount(p) && searcherModel(p) != "" {
 		return searchMagpie
