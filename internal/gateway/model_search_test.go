@@ -13,6 +13,7 @@ import (
 
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // Whether a model searches the web by itself is the user's to say, by
@@ -46,10 +47,10 @@ func TestModelSearchAnswerBeatsTheRules(t *testing.T) {
 	if err := provider.SetModelSearch("relay/m", &no); err != nil {
 		t.Fatal(err)
 	}
-	if SearchesByItself(*p, "m") || searchesModel(*p, provider.Anthropic, "m") || searchesFor(*p, provider.Anthropic, "m", &Request{WebSearch: true}) {
+	if SearchesByItself(*p, "m") || searchesItselfFor(*p, provider.Anthropic, "m") || searchesModel(*p, provider.Anthropic, "m") || searchesFor(*p, provider.Anthropic, "m", &Request{WebSearch: true}) {
 		t.Fatal("a model said not to search still does")
 	}
-	if pref := ModelSearch(*p, "m"); !pref.Set || pref.Searches || pref.Own {
+	if pref := ModelSearch(*p, "m"); !pref.Set || pref.Searches || !pref.Own {
 		t.Fatalf("preference %+v", pref)
 	}
 	// another magpie is told magpie searches for it, not that its vendor does
@@ -98,6 +99,120 @@ func TestModelSearchAnswerBeatsTheRules(t *testing.T) {
 	}
 	if v, ok := provider.SearchOverride("plain", "m"); !ok || v {
 		t.Fatalf("override %v %v", v, ok)
+	}
+}
+
+func TestModelSearchRestoresTheDefault(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	setHome(t, t.TempDir())
+	p := provider.Provider{ID: "relay", Searches: true, Anthropic: "https://relay.example/v1"}
+	for _, c := range []struct {
+		name     string
+		answers  map[string]bool
+		searches bool
+		own      bool
+		set      bool
+	}{
+		{"native default", nil, true, true, false},
+		{"native turned off", map[string]bool{"relay/m": false}, false, true, true},
+		{"inherited off", map[string]bool{"relay/*": false}, false, false, false},
+		{"model beats inherited off", map[string]bool{"relay/*": false, "relay/m": true}, true, false, true},
+		{"model beats inherited on", map[string]bool{"relay/*": true, "relay/m": false}, false, true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := settings.Load()
+			s.ModelSearches = c.answers
+			if err := settings.Save(s); err != nil {
+				t.Fatal(err)
+			}
+			pref := ModelSearch(p, "m")
+			if pref.Searches != c.searches || pref.Own != c.own || pref.Set != c.set {
+				t.Fatalf("preference %+v, want searches %v, Restore default %v, model answer set %v", pref, c.searches, c.own, c.set)
+			}
+		})
+	}
+}
+
+func TestChosenSearcherSkipsModelsSaidNotToSearch(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	setHome(t, t.TempDir())
+	catalog.Reset()
+	t.Cleanup(catalog.Reset)
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"data":[{"id":"m1"},{"id":"safe-lite"}]}`)
+	}))
+	t.Cleanup(relay.Close)
+	p := provider.Provider{ID: "relay", Name: "Relay", Key: "k", Searches: true, Anthropic: relay.URL}
+	if err := provider.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Fetch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// safe-lite is left out of the small-model heuristic, but can still
+	// be used by the final fallback. m1 is never eligible.
+	for _, ref := range []string{"relay", "relay/m1", "relay/missing"} {
+		for _, blocked := range []bool{false, true} {
+			s := settings.Load()
+			s.Searcher = ref
+			s.ModelSearches = map[string]bool{"relay/m1": false, "relay/safe-lite": !blocked}
+			if err := settings.Save(s); err != nil {
+				t.Fatal(err)
+			}
+			wantModel, wantWhy := "safe-lite", ""
+			if blocked {
+				wantModel, wantWhy = "", SearcherNoneOf
+			}
+			got, model, why := chosenSearcher()
+			if got == nil || got.ID != p.ID || model != wantModel || why != wantWhy {
+				t.Errorf("%s, all blocked %v: searcher %v/%s (%s), want %s (%s)", ref, blocked, got, model, why, wantModel, wantWhy)
+			}
+			if blocked {
+				if chosen, model, ok := searcher(); ok {
+					t.Errorf("%s: a model said not to search was still chosen: %s/%s", ref, chosen.ID, model)
+				}
+			}
+		}
+	}
+}
+
+func TestModelSearchNeedsASearchAPI(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	setHome(t, t.TempDir())
+	for _, c := range []struct {
+		name     string
+		p        provider.Provider
+		proto    provider.Protocol
+		native   bool
+		own      bool
+		otherAPI bool
+	}{
+		{"unknown Chat", provider.Provider{Chat: "https://relay.example/v1"}, provider.Chat, false, false, false},
+		{"unknown Anthropic", provider.Provider{Anthropic: "https://relay.example"}, provider.Anthropic, true, false, false},
+		{"unknown Responses", provider.Provider{Responses: "https://relay.example/v1"}, provider.Responses, true, false, false},
+		{"OpenRouter Chat", provider.Provider{Chat: "https://openrouter.ai/api/v1"}, provider.Chat, true, true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := c.p
+			p.ID = "relay"
+			s := settings.Load()
+			s.ModelSearches = map[string]bool{"relay/m": true}
+			if err := settings.Save(s); err != nil {
+				t.Fatal(err)
+			}
+			if pref := ModelSearch(p, "m"); !pref.Searches || !pref.Set || pref.Own != c.own || pref.OtherAPI != c.otherAPI {
+				t.Fatalf("editor preference %+v, want saved on, default %v, other API %v", pref, c.own, c.otherAPI)
+			}
+			if got := SearchesByItself(p, "m"); got != c.native {
+				t.Errorf("searches by itself = %v, want %v", got, c.native)
+			}
+			if got := searchesModel(p, c.proto, "m"); got != c.native {
+				t.Errorf("takes a vendor search on %s = %v, want %v", c.proto, got, c.native)
+			}
+		})
 	}
 }
 

@@ -135,29 +135,43 @@ func searchesModel(p provider.Provider, proto provider.Protocol, model string) b
 // to offer that vendor a search (its Chat API has no such tool of
 // magpie's), so the model's own rules stand.
 func searchesItselfFor(p provider.Provider, proto provider.Protocol, model string) bool {
+	said, set := provider.SearchOverride(p.ID, model)
+	if set && !said {
+		return false
+	}
 	if searchesItself(p, proto) {
 		return true
 	}
-	if said, ok := provider.SearchOverride(p.ID, model); ok && said {
+	if set && said {
 		return (proto == provider.Anthropic || proto == provider.Responses) && p.Base(proto) != ""
 	}
 	return false
 }
 
-// SearchesByItself is whether a web search offered to p's model goes to its
-// vendor as sent, on any API p speaks (searchesModel, read once for the
-// provider editor's tick and for what magpie's own list tells another
-// magpie). The user's per-model answer comes first: false says magpie
-// searches for the model instead, whatever the vendor's rules would say.
+// SearchesByItself is whether p's model searches natively on an API it
+// speaks, not whether a remote magpie can search for it with another model.
+// The user's answer takes precedence over the vendor's rules.
 func SearchesByItself(p provider.Provider, model string) bool {
-	if said, ok := provider.SearchOverride(p.ID, model); ok && !said {
-		return false
+	if said, set := provider.SearchOverride(p.ID, model); set {
+		if !said {
+			return false
+		}
+		for _, proto := range p.Speaks() {
+			if proto == provider.Anthropic || proto == provider.Responses {
+				return true
+			}
+		}
 	}
+	return nativeSearch(p, model)
+}
+
+// nativeSearch is what the vendor's rules say, without the user's answer.
+func nativeSearch(p provider.Provider, model string) bool {
 	if p.IsRemoteMagpie() && remoteSearch(p, model) == searchNative || codeAssistSearches(p, provider.CodeAssist, model) {
 		return true
 	}
 	for _, proto := range p.Speaks() {
-		if searchesModel(p, proto, model) {
+		if searchesItself(p, proto) {
 			return true
 		}
 	}
@@ -166,12 +180,14 @@ func SearchesByItself(p provider.Provider, model string) bool {
 
 // SearchPreference is how one of a provider's models stands on searching
 // the web by itself: Searches, the answer in force — the user's when they
-// gave one (Set), else Own — and Own, what magpie's own rules say before
-// the user's answer, which is what the editor's Restore default puts back.
+// gave one (Set), else Own — and Own, what Restore default puts back: the
+// provider-wide answer, when set, else magpie's rules. OtherAPI says an on
+// answer can work without an Anthropic or Responses URL.
 type SearchPreference struct {
 	Searches bool
 	Own      bool
 	Set      bool
+	OtherAPI bool
 }
 
 // ModelSearch is SearchPreference for p's model, what the provider editor's
@@ -180,11 +196,21 @@ type SearchPreference struct {
 // and can be seen to be theirs; what a request does is searchesModel's to
 // say.
 func ModelSearch(p provider.Provider, model string) SearchPreference {
-	own := SearchesByItself(p, model)
-	if said, ok := provider.SearchOverride(p.ID, model); ok {
-		return SearchPreference{Searches: said, Own: own, Set: true}
+	s := provider.HeldSettings()
+	inherited, hasInherited := s.ModelSearches[p.ID+"/*"]
+	own := nativeSearch(p, model)
+	if hasInherited {
+		own = inherited
 	}
-	return SearchPreference{Searches: own, Own: own}
+	// Keep known Chat, Gemini and subscription searches distinct from an
+	// on answer that needs an Anthropic or Responses URL in the editor.
+	other := p
+	other.Anthropic, other.Responses = "", ""
+	pref := SearchPreference{Searches: own, Own: own, OtherAPI: nativeSearch(other, model)}
+	if said, ok := s.ModelSearches[p.ID+"/"+model]; ok {
+		pref.Searches, pref.Set = said, true
+	}
+	return pref
 }
 
 // searchHosts are the APIs that search by themselves: OpenAI's, xAI's,
@@ -325,8 +351,10 @@ func chosenSearcher() (*provider.Provider, string, string) {
 	if m := searcherModel(p); m != "" {
 		return &p, m, ""
 	}
-	if ms := p.Available(); len(ms) > 0 {
-		return &p, ms[0].ID, ""
+	for _, m := range p.Available() {
+		if searchableModel(p, m.ID) {
+			return &p, m.ID, ""
+		}
 	}
 	return &p, "", SearcherNoneOf
 }

@@ -7661,6 +7661,7 @@ function drawEditor(p, presetID) {
       url.placeholder = v === "anthropic" ? "https://…" : "https://…/v1";
       fillEndpoints();
       showSearch();
+      draft.onModelSearch?.();
       showLocal();
     };
     queueMicrotask(() => slide(seg, "api"));
@@ -7952,6 +7953,7 @@ function drawEditor(p, presetID) {
         for (const x of seg.querySelectorAll(".opt")) x.classList.toggle("on", x === b);
         slide(seg, "regions");
         refreshEndpoints();
+        draft.onModelSearch?.();
       };
       seg.append(b);
     }
@@ -8019,6 +8021,7 @@ function drawEditor(p, presetID) {
     refreshEndpoints();
     ed.append(...field(t("Endpoints"), ebox, ""));
   }
+  ed.addEventListener("input", (e) => { if (e.target.type === "url") draft?.onModelSearch?.(); });
 
   if (custom) {
     const more = el("details", "more");
@@ -9185,6 +9188,8 @@ function renderModels(p) {
     if (!ids.length) { names.append(el("span", "hint", t("Pick a model first."))); return; }
     const prefs = draft.modelPrefs = draft.modelPrefs || {};
     draft.onModelPrefs = drawNames;
+    const searchHints = [];
+    draft.onModelSearch = () => { for (const show of searchHints) show(); };
     // how the agents' lists will call them, and the setting that says so
     // (#868), above the names given here
     const sfx = el("div", "msuffix");
@@ -9390,14 +9395,25 @@ function renderModels(p) {
       // which (the tool can only go out on an Anthropic or Responses API)
       const [srch, srchCb] = tick(t("Searches the web by itself"), searchNow());
       srch.title = t("Whether a web search offered to {id} goes to its vendor as sent, rather than magpie searching for it with another model. A vendor's own web search tool goes out on its Anthropic or Responses API", { id: m.id });
+      const searchHint = el("span", "hint");
+      searchHint.id = "model-search-help-" + ++fieldIDs;
+      srchCb.setAttribute("aria-describedby", searchHint.id);
+      const showSearchHint = () => {
+        const endpoints = !!((draft.anthropic || "").trim() || (draft.responses || "").trim());
+        searchHint.hidden = !searchNow() || endpoints || !!m.searchOtherAPI;
+        searchHint.textContent = t("Needs an Anthropic or Responses URL; magpie searches for this model instead");
+      };
+      searchHints.push(showSearchHint);
+      showSearchHint();
       srchCb.onchange = () => {
         const x = pref();
         delete x.ownSearch;
         if (srchCb.checked === !!m.searches) delete x.search;
         else x.search = srchCb.checked;
+        showSearchHint();
         drawReset();
       };
-      row.append(srch);
+      row.append(srch, searchHint);
       const apiNow = () => prefs[id]?.api ?? m.api ?? "";
       let apiSeg = null;
       if (apis.length || m.api) {
@@ -9453,6 +9469,7 @@ function renderModels(p) {
         name.value = nameNow();
         imgCb.checked = imagesNow();
         srchCb.checked = searchNow();
+        showSearchHint();
         for (const [l, cb] of boxes) cb.checked = keptNow().includes(l);
         if (m.api) prefs[id].api = "";
         if (m.same) prefs[id].same = "";

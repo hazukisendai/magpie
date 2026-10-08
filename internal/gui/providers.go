@@ -35,23 +35,24 @@ type modelJSON struct {
 	ImageSet bool     `json:"imageSet,omitempty"`  // the user said so, rather than its vendor
 	Own      bool     `json:"ownImages,omitempty"` // its vendor's answer, which a staged Restore default shows
 	// whether its vendor searches the web for it by itself: the answer in
-	// force, whether the user gave one, and magpie's own answer before it,
-	// which a staged Restore default shows
-	Searches    bool     `json:"searches"`
-	SearchSet   bool     `json:"searchSet,omitempty"`
-	OwnSearches bool     `json:"ownSearches,omitempty"`
-	On          bool     `json:"on"`                // exposed to agents
-	Context     int      `json:"context,omitempty"` // the window agents are told: the user's, else Listed
-	Output      int      `json:"output,omitempty"`  // the reply limit agents are told (provider.ReplyLimit)
-	Listed      int      `json:"listed,omitempty"`  // its window before the user's: its vendor's list's, else models.dev's
-	Max         int      `json:"max,omitempty"`     // the most its context may be set to, above Listed
-	Free        bool     `json:"free,omitempty"`    // costs the subscription nothing
-	Rate        float64  `json:"rate,omitempty"`    // the credits a request costs the subscription, as a multiple
-	RateWas     float64  `json:"rateWas,omitempty"` // the rate before a discount running now
-	API         string   `json:"api,omitempty"`     // the one API the user said it is asked on
-	Auto        []string `json:"auto,omitempty"`    // the APIs its vendor's list says it is served on, what Auto asks it on
-	Same        string   `json:"same,omitempty"`    // the model the user said it is the same as, for the groups magpie finds (#583)
-	Merge       string   `json:"merge,omitempty"`   // what those groups merge it by when the user says nothing
+	// force, whether the user gave one for this model, and the answer a
+	// staged Restore default shows (the provider-wide answer, else rules)
+	Searches       bool     `json:"searches"`
+	SearchSet      bool     `json:"searchSet,omitempty"`
+	OwnSearches    bool     `json:"ownSearches,omitempty"`
+	SearchOtherAPI bool     `json:"searchOtherAPI,omitempty"` // known to search without Anthropic or Responses
+	On             bool     `json:"on"`                       // exposed to agents
+	Context        int      `json:"context,omitempty"`        // the window agents are told: the user's, else Listed
+	Output         int      `json:"output,omitempty"`         // the reply limit agents are told (provider.ReplyLimit)
+	Listed         int      `json:"listed,omitempty"`         // its window before the user's: its vendor's list's, else models.dev's
+	Max            int      `json:"max,omitempty"`            // the most its context may be set to, above Listed
+	Free           bool     `json:"free,omitempty"`           // costs the subscription nothing
+	Rate           float64  `json:"rate,omitempty"`           // the credits a request costs the subscription, as a multiple
+	RateWas        float64  `json:"rateWas,omitempty"`        // the rate before a discount running now
+	API            string   `json:"api,omitempty"`            // the one API the user said it is asked on
+	Auto           []string `json:"auto,omitempty"`           // the APIs its vendor's list says it is served on, what Auto asks it on
+	Same           string   `json:"same,omitempty"`           // the model the user said it is the same as, for the groups magpie finds (#583)
+	Merge          string   `json:"merge,omitempty"`          // what those groups merge it by when the user says nothing
 	// what it costs, USD per million tokens (#819): the price the user set
 	// for it, and its list price, its vendor's else its maker's, before the
 	// provider's price rate
@@ -518,7 +519,7 @@ func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
 			images = said
 		}
 		search := gateway.ModelSearch(p, m.ID)
-		j := modelJSON{ID: m.ID, Name: m.Name, Efforts: provider.EffortsOf(m), On: on, Context: p.WindowOf(m), Output: p.ReplyLimitIn(m, set), Listed: provider.ListedWindow(m), Max: m.MaxContext, Free: m.Free, Rate: m.Rate, RateWas: m.RateWas, Images: images, ImageSet: imageSet, Own: own, Searches: search.Searches, SearchSet: search.Set, OwnSearches: search.Own}
+		j := modelJSON{ID: m.ID, Name: m.Name, Efforts: provider.EffortsOf(m), On: on, Context: p.WindowOf(m), Output: p.ReplyLimitIn(m, set), Listed: provider.ListedWindow(m), Max: m.MaxContext, Free: m.Free, Rate: m.Rate, RateWas: m.RateWas, Images: images, ImageSet: imageSet, Own: own, Searches: search.Searches, SearchSet: search.Set, OwnSearches: search.Own, SearchOtherAPI: search.OtherAPI}
 		if i := slices.IndexFunc(most, func(c catalog.Model) bool { return c.ID == m.ID }); j.Max == 0 && i >= 0 {
 			j.Max = most[i].MaxContext
 		}

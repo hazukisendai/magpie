@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -171,6 +172,105 @@ func TestSearchingFromAnotherMagpie(t *testing.T) {
 		h.ServeHTTP(httptest.NewRecorder(), r)
 		if seen != c.want {
 			t.Errorf("%s: searching = %v", c.ua, seen)
+		}
+	}
+}
+
+// Forwarding a client's search to a remote magpie doesn't make that model
+// a native searcher for this magpie or the next one in the chain.
+func TestRemoteMagpieDelegatedSearchIsNotNative(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	setHome(t, t.TempDir())
+	catalog.Reset()
+	t.Cleanup(catalog.Reset)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"data":[{"id":"vendor/native-lite","web_search":"native"},{"id":"plain/m1","web_search":"magpie"},{"id":"plain/m2"}]}`)
+	}))
+	t.Cleanup(remote.Close)
+	id, err := provider.Add(provider.Provider{ID: "remote", Name: "Remote", Preset: provider.RemoteMagpiePreset, Chat: remote.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := provider.Find(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Fetch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		model string
+		how   string
+	}{
+		{"vendor/native-lite", searchNative},
+		{"plain/m1", searchMagpie},
+		{"plain/m2", ""},
+	} {
+		t.Run(c.model, func(t *testing.T) {
+			native := c.how == searchNative
+			if got := SearchesByItself(*p, c.model); got != native {
+				t.Errorf("remote model %s searches by itself = %v, want %v", c.model, got, native)
+			}
+			if pref := ModelSearch(*p, c.model); pref.Searches != native || pref.Own != native || pref.Set {
+				t.Errorf("remote model %s editor preference = %+v", c.model, pref)
+			}
+			if got := searchableModel(*p, c.model); got != native {
+				t.Errorf("remote model %s offered as a searcher = %v, want %v", c.model, got, native)
+			}
+			for _, searcher := range []bool{false, true} {
+				want := ""
+				if native {
+					want = searchNative
+				} else if searcher {
+					want = searchMagpie
+				}
+				if got := webSearchOf(provider.Entry{Provider: *p, Model: c.model}, searcher); got != want {
+					t.Errorf("remote model %s advertised %q with searcher %v, want %q", c.model, got, searcher, want)
+				}
+			}
+			for _, proto := range []provider.Protocol{provider.Chat, provider.Responses, provider.Anthropic} {
+				if got := searchesModel(*p, proto, c.model); got != (c.how != "") {
+					t.Errorf("%s: remote model %s takes a client's search = %v", proto, c.model, got)
+				}
+			}
+		})
+	}
+	h := New().Handler()
+	// Exercise the serialized list another magpie actually reads, with no
+	// searcher and then a configured search API. native-lite isn't chosen
+	// automatically by the small-model heuristic. No search API is called.
+	for _, enabled := range []bool{false, true} {
+		if enabled {
+			if err := provider.SetSearchAPI(provider.SearchAPI{Vendor: "brave", Key: "test-key"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		req.Header.Set(provider.DrawersHeader, "1")
+		req.Header.Set("User-Agent", "magpie/0.1.983")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var list struct {
+			Data []struct {
+				ID        string `json:"id"`
+				WebSearch string `json:"web_search"`
+			} `json:"data"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &list) != nil {
+			t.Fatalf("model list: %d %s", rec.Code, rec.Body)
+		}
+		how := map[string]string{}
+		for _, m := range list.Data {
+			how[m.ID] = m.WebSearch
+		}
+		want := ""
+		if enabled {
+			want = searchMagpie
+		}
+		if how[id+"/vendor/native-lite"] != searchNative || how[id+"/plain/m1"] != want || how[id+"/plain/m2"] != want {
+			t.Fatalf("serialized remote model list with search API %v: %v, want native for vendor/native-lite, %q for plain", enabled, how, want)
 		}
 	}
 }

@@ -77,6 +77,31 @@ axis controls.
 - Tests never touch a live agent config. The package's `TestMain` runs under `testenv`'s home of its own. A macOS test that shows windows runs them in a process of its own through `runAppKit` ([`appkit_darwin_test.go`](../../internal/gui/appkit_darwin_test.go)). AppKit and WebKit take their home from the account, not from HOME, so `runAppKit` gives them a temporary one with `CFFIXED_USER_HOME`; appearance, contrast and languages still come from the account. The test fails when that process leaves a folder in the real `~/Library/WebKit` or `~/Library/Caches`. Playwright tests serve `assets/` with isolated `/api` fixtures.
 - `POST /api/settings/codex-auto-review` accepts an empty value (Codex's own choice) or an exact model/group ID in `provider.Served`, including unlisted providers. A known provider with an unknown or empty model name is rejected without changing the saved reviewer or catalog tag. Generic gateway request resolution remains permissive; it is not the validator for this setting. See `Handler` in [`api.go`](../../internal/gui/api.go) and `TestCodexAutoReviewSetting` in [`codex_auto_review_test.go`](../../internal/gui/codex_auto_review_test.go).
 
+### Model search answers
+
+The provider editor's Names & levels stages its *Searches the web by
+itself* checkbox in `modelPrefs[model].search`; only Save sends it to
+`POST /api/provider/save`. Cancel drops it. Restore default sends
+`ownSearch: true`, removing only that model's answer and showing the
+provider-wide answer, if any, else the vendor's rules. `ModelSearch` in
+[`search.go`](../../internal/gateway/search.go) supplies `searches`,
+`searchSet` (an exact model answer, not an inherited one), `ownSearches`
+and `searchOtherAPI` in `GET /api/providers`' model rows.
+
+A checked answer that needs an Anthropic or Responses URL has a visible,
+accessible explanation when neither is configured; it stays editable and
+the draft's URLs update that explanation without saving. Known native
+search on another API, such as OpenRouter's Chat API, needs no warning.
+[Gateway routing](gateway-routing.md#web-search) describes what requests do.
+
+`POST /api/provider/search` is a separate direct API: `id`, `model` and
+`search` (true, false or null to remove the answer). The checkbox does not
+call it. Provider-wide `<provider id>/*` answers have no control in the
+editor; they can be set through settings' `modelSearches` or this API with
+`model: "*"`. [`providers.go`](../../internal/gui/providers.go) handles
+both APIs; [`modelprefs.go`](../../internal/provider/modelprefs.go)'s
+`SetModelSearch` stores the answer and `SetModelPrefs` applies a Save.
+
 `openModal` makes the background inert when an editor opens fresh, leaving
 confirmations and menus interactive through redraws. `closeModal` releases
 that background as soon as the close animation starts, so clicks reach the
@@ -91,9 +116,11 @@ waits for `show` to accept navigation before creating its draft.
 
 ```sh
 go test -tags nogui ./internal/gui
+go test -tags nogui ./internal/gui -run 'TestProviderSaveModelPrefs|TestProviderModelSearchPreferences'
 go test -v ./internal/fonts         # native discovery on each desktop OS
 make test-ui                      # every internal/gui/tests/*.test.cjs, Chromium and WebKit
 BROWSER=webkit node --test internal/gui/tests/click-scroll.test.cjs
+node --test internal/gui/tests/model-search.test.cjs internal/gui/tests/provider-same-as.test.cjs internal/gui/tests/provider-detect.test.cjs
 ```
 
 `make test-ui` needs Node.js and Playwright (`playwright install chromium

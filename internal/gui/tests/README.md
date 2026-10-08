@@ -24,6 +24,29 @@ Run `go test -v ./internal/fonts` without `nogui` on each desktop platform.
 Browser fixtures never read or write user settings, install fonts or contact
 a live gateway.
 
+## Per-model web search
+
+`model-search.test.cjs` checks Names & levels' *Searches the web by itself*
+checkbox: mouse and keyboard changes, draft reversals, Save, Cancel,
+Restore default inheriting a provider-wide answer, and saved values after
+reload. Ticks and reset send no request before Save. A Chat-only provider's
+saved on answer shows an accessible explanation that follows endpoint edits,
+while OpenRouter's native Chat search shows none. The explanation stays
+readable at 440px, and clicks do not scroll. It runs in Chromium and WebKit,
+in English, Simplified and Traditional Chinese, Japanese and German.
+
+```sh
+node --test internal/gui/tests/model-search.test.cjs internal/gui/tests/provider-same-as.test.cjs internal/gui/tests/provider-detect.test.cjs
+node --test internal/gui/tests/gui-zh-tw.test.cjs internal/gui/tests/gui-ja.test.cjs internal/gui/tests/gui-de.test.cjs
+```
+
+`MAGPIE_MODEL_SEARCH_ASSETS` points the test at an older assets directory
+to verify that the missing Chat-only explanation fails. `ARTIFACT_DIR`
+keeps narrow-window screenshots. All API responses and saved settings are
+fixtures; no live provider is contacted. See
+[Model search answers](../../../docs/subsystems/gui-shell.md#model-search-answers)
+for the direct API and the editor's Save-only behavior.
+
 ## Gateway Caller Keys
 
 `gateway-caller-keys.test.cjs` checks the named caller-key list on the

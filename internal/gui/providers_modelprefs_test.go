@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
 )
 
@@ -50,7 +51,7 @@ func TestProviderSaveModelPrefs(t *testing.T) {
 	if _, held := settings.Load().ModelSearches["relay/sol"]; held {
 		t.Fatal("the answer stayed")
 	}
-	// and the click-at-a-time action the row itself uses
+	// The direct API is separate from the editor, which sends only Save.
 	if w := postTo("/api/provider/search", `{"id":"relay","model":"sol","search":true}`); w.Code != 200 {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
@@ -67,5 +68,38 @@ func TestProviderSaveModelPrefs(t *testing.T) {
 	// one it refuses fails the Save, saying why
 	if w := post(`{"id":"relay","from":"relay","name":"Relay","chat":"http://127.0.0.1:1/v1","models":["sol"],"modelPrefs":{"sol":{"efforts":["loud"]}}}`); w.Code == 200 || !strings.Contains(w.Body.String(), "loud") {
 		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
+func TestProviderModelSearchPreferences(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	for _, p := range []provider.Provider{
+		{ID: "relay", Name: "Relay", Key: "k", Anthropic: "https://relay.example", Models: []string{"m"}},
+		{ID: "router", Name: "Router", Key: "k", Chat: "https://openrouter.ai/api/v1", Models: []string{"m"}},
+		{ID: "plain", Name: "Plain", Key: "k", Chat: "https://relay.example/v1", Models: []string{"m"}},
+	} {
+		if err := provider.Save(p); err != nil {
+			t.Fatal(err)
+		}
+		s := settings.Load()
+		s.ModelSearches = map[string]bool{p.ID + "/m": true}
+		if err := settings.Save(s); err != nil {
+			t.Fatal(err)
+		}
+		info := providerInfo(p, nil)
+		if len(info.Models) != 1 {
+			t.Fatalf("%s: models %v", p.ID, info.Models)
+		}
+		m := info.Models[0]
+		if !m.Searches || !m.SearchSet || m.SearchOtherAPI != (p.ID == "router") {
+			t.Errorf("%s: editor cannot distinguish the saved answer and the usable API: %+v", p.ID, m)
+		}
+		if m.OwnSearches != (p.ID == "router") {
+			t.Errorf("%s: Restore default says %+v", p.ID, m)
+		}
 	}
 }
