@@ -56,6 +56,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/netproxy"
@@ -125,7 +126,13 @@ type subscriptionRun struct {
 	// the read ends of Claude Code's output, and their readers
 	outputs []*os.File
 	reading sync.WaitGroup
-	tmp     string
+	// exited is closed once Claude Code has exited and its output is read,
+	// exit then how it ended (Wait's error); killed says magpie ended it
+	// (abort) while it ran
+	exited chan struct{}
+	exit   error
+	killed bool
+	tmp    string
 	// schema says the client asked for an answer fitting a JSON schema,
 	// which Claude Code gives as its StructuredOutput call
 	schema bool
@@ -633,7 +640,7 @@ func (b *subscriptionBridge) start(ctx context.Context, req *Request, model, con
 		return nil, nil, err
 	}
 	line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
-	if _, err := stdin.Write(append(line, '\n')); err != nil {
+	if err := run.tell(line); err != nil {
 		run.abort()
 		return nil, nil, err
 	}
@@ -693,7 +700,7 @@ func (r *subscriptionRun) cliControl(request map[string]any) error {
 		r.mu.Unlock()
 	}()
 	line, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": id, "request": request})
-	if _, err := r.stdin.Write(append(line, '\n')); err != nil {
+	if err := r.tell(line); err != nil {
 		return err
 	}
 	t := time.NewTimer(10 * time.Second)
@@ -786,7 +793,7 @@ func (b *subscriptionBridge) resume(req *Request, owner string) (*subscriptionRu
 			return nil, nil
 		}
 	}
-	if _, err := run.stdin.Write(append(line, '\n')); err != nil {
+	if err := run.tell(line); err != nil {
 		run.abort()
 		return nil, nil
 	}
@@ -981,7 +988,7 @@ func callsTool(m Message) bool {
 func (r *subscriptionRun) setEffort(effort string) error {
 	line, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": "effort-" + randomToken()[:12],
 		"request": map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": effort}}})
-	if _, err := r.stdin.Write(append(line, '\n')); err != nil {
+	if err := r.tell(line); err != nil {
 		return err
 	}
 	r.effort = effort
@@ -1425,7 +1432,7 @@ func (r *subscriptionRun) rewind(turn string) error {
 	}()
 	line, _ := json.Marshal(map[string]any{"type": "control_request", "request_id": id,
 		"request": map[string]any{"subtype": "rewind_conversation", "target_message_uuid": turn, "interrupt_if_running": true}})
-	if _, err := r.stdin.Write(append(line, '\n')); err != nil {
+	if err := r.tell(line); err != nil {
 		return err
 	}
 	t := time.NewTimer(rewindLongest)
@@ -2699,7 +2706,7 @@ func (b *subscriptionBridge) mcpCall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown or expired Claude run", http.StatusNotFound)
 		return
 	}
-	body, status, err := readBoundedRequestBody(w, r, requestLimits{body: 16 << 20}, nil)
+	body, status, err := readBoundedRequestBody(w, r, requestLimits{body: 16 << 20})
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
@@ -2855,15 +2862,68 @@ func (r *subscriptionRun) launch() error {
 	if err != nil {
 		return err
 	}
+	exited := make(chan struct{})
 	r.mu.Lock()
-	r.tree = t
+	r.tree, r.exited = t, exited
 	r.mu.Unlock()
 	go func() {
-		_ = t.Wait()
+		err := t.Wait()
 		r.drain()
+		r.mu.Lock()
+		r.exit = err
+		r.mu.Unlock()
+		close(exited)
 		r.finish()
 	}()
 	return nil
+}
+
+// tell writes line to Claude Code's input. Wait closes that input as
+// Claude Code exits, and a write after it failed "write |1: file already
+// closed", which said nothing of why: one Claude Code no longer reads says
+// how it ended, or that magpie ended it, and the last it wrote to stderr —
+// the cause comes last, after any warnings before it.
+func (r *subscriptionRun) tell(line []byte) error {
+	_, err := r.stdin.Write(append(line, '\n'))
+	if err == nil {
+		return nil
+	}
+	r.mu.Lock()
+	exited := r.exited
+	r.mu.Unlock()
+	if exited == nil {
+		return err
+	}
+	select {
+	case <-exited:
+	case <-time.After(outputDrain + time.Second):
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	why := "exited before it read its input"
+	if r.killed {
+		why = "was ended by magpie before it read its input"
+	} else if r.exit != nil {
+		why += " (" + r.exit.Error() + ")"
+	}
+	if said := strings.TrimSpace(r.stderr.String()); said != "" {
+		why += ": " + clipTail(said, 300)
+	}
+	return errors.New(why)
+}
+
+// clipTail is s's last n bytes at most, cut at a rune, "…" before them
+// where some went.
+func clipTail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	i := len(s) - n
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return "…" + s[i:]
 }
 
 // outputDrain is how long the run's output is read once Claude Code has
@@ -2891,6 +2951,13 @@ func (r *subscriptionRun) drain() {
 func (r *subscriptionRun) abort() {
 	r.mu.Lock()
 	t := r.tree
+	if t != nil && r.exited != nil {
+		select {
+		case <-r.exited:
+		default:
+			r.killed = true
+		}
+	}
 	r.mu.Unlock()
 	if t != nil {
 		t.Kill()

@@ -782,6 +782,8 @@ body.window .field.solo { grid-column: auto; }
    were of — by provider, agent or model — which is also the chart's legend */
 .led-dash { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .led-dash[hidden] { display: none; }
+/* the totals and the two sources: one block of cells, a line between them, as
+   the totals above have it */
 .led-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
 .led-strip .blk { min-width: 0; padding: 11px 15px 10px; }
 .led-strip .blk + .blk { border-left: 1px solid var(--line-2); }
@@ -868,6 +870,21 @@ body.window .field.solo { grid-column: auto; }
 /* over the requests: their sum, and at its right the request archive's switch */
 .led-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 0 2px 7px; min-width: 0; }
 .led-head .led-sum { margin: 0; min-width: 0; }
+/* the two sources the request page counts and their total, in the same block
+   of cells as the totals above them, each one clickable to filter by it */
+.led-vias { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 0 9px; }
+.led-vias[hidden] { display: none; }
+.led-vias .blk { cursor: pointer; text-align: left; border: 0; font: inherit; color: inherit; background: none; }
+.led-vias .blk:hover { background: var(--pill-hover); }
+.led-vias .blk:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* the one being filtered by: its own colour under the count, no blue text */
+.led-vias .blk.on { box-shadow: inset 0 -2px 0 var(--accent); }
+/* the count's unit sits after the number, small, as its label is under it */
+.led-vias .v em { margin-left: 3px; font-size: 12.5px; font-weight: 600; font-style: normal; color: var(--muted); }
+@media (max-width: 620px) {
+  .led-vias { grid-template-columns: minmax(0, 1fr); }
+  .led-vias .blk + .blk { border-left: 0; border-top: 1px solid var(--line-2); }
+}
 .led-arch { display: inline-flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
 .led-arch-sw { display: inline-flex; align-items: center; gap: 7px; padding: 2px 0; background: none; border: 0; font: inherit; font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .led-arch-sw:hover, .led-arch-sw.on { color: var(--fg); }
@@ -917,7 +934,10 @@ body.window .field.solo { grid-column: auto; }
 .led.tight .model, .led.tight .where { max-width: 160px; }
 .led.tight th, .led.tight td { padding-left: 6px; padding-right: 6px; }
 .led.tighter .price-reference { display: none; }
-.led.tighter .model, .led.tighter .where { max-width: 110px; }
+/* the account's name is cut at 110px, but its column keeps room for the
+   source badges under it, which don't wrap: capped at 110px the cell cut
+   off the second English one ("Subscription") */
+.led.tighter .model, .led.tighter .where-name { max-width: 110px; }
 .led.tighter th, .led.tighter td { padding-left: 4px; padding-right: 4px; }
 .led.tighter th { white-space: normal; }
 .led-tight { font-size: 11.5px; color: var(--muted); }

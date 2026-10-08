@@ -70,7 +70,9 @@
   const log = el("div", "rt-log");
   const logHead = el("div", "rt-log-head");
   const steps = el("ol", "rt-steps");
-  log.append(logHead, steps);
+  // what the request's prompt held: its context window (context.js)
+  const ctxBox = el("div", "rt-ctx");
+  log.append(logHead, steps, ctxBox);
   const off = el("div", "none rt-off");
   // over the stage while a replay plays: the time it is replaying, which
   // requests are in flight then, and where it is among them
@@ -1273,6 +1275,37 @@
       }
     }
     renderSteps(r);
+    renderCtx(r);
+  }
+  // renderCtx draws the request's context window under its story, with
+  // its session's prompts request by request; drawn again only when what
+  // it shows changes, and its cells come in only for a request newly shown
+  let ctxKey = "", ctxShown = 0, ctxTab = "all";
+  function renderCtx(r) {
+    if (!r.prompt || !window.ctxCard) {
+      if (ctxKey) { ctxKey = ""; ctxBox.replaceChildren(); }
+      return;
+    }
+    const sk = sessionKey(r);
+    const same = (x) => x.prompt && x.agent === r.agent && !x.kind && (sk ? sessionKey(x) === sk : r.conv && x.conv === r.conv);
+    const series = (sk || r.conv) && !r.kind ? listed().filter(same).sort((a, b) => a.id - b.id)
+      .map((x) => ({ id: x.id, tokens: x.prompt.tokens, time: x.time })) : null;
+    if (series && !series.some((x) => x.id === r.id)) series.push({ id: r.id, tokens: r.prompt.tokens, time: r.time });
+    const key = JSON.stringify([document.documentElement.lang, r.id, r.done, r.prompt.tokens, r.prompt.counted, r.prompt.window, r.usage?.length, series?.map((x) => x.id + ":" + x.tokens).join()]);
+    if (key === ctxKey) return;
+    ctxKey = key;
+    const still = ctxShown === r.id;
+    ctxShown = r.id;
+    const sess = groupSession(r) || r.conv || "";
+    ctxBox.replaceChildren(window.ctxCard(r, {
+      still, series, tab: ctxTab,
+      onTab: (id) => { ctxTab = id; },
+      crumbs: [agentName(r.agent), sess && (sess.length > 14 ? sess.slice(0, 12) + "…" : sess), "#" + r.id],
+      onPoint: (pt) => {
+        const x = routes.get(pt.id) || listed().find((y) => y.id === pt.id);
+        if (x) pick(x);
+      },
+    }));
   }
   // logoed puts the provider's logo before the first account, key or
   // provider a line of the story names, so who it is about reads at a
@@ -3407,11 +3440,21 @@
     const rlist = el("div", "fbl");
     const rAdd = el("button", "rt-gadd");
     rAdd.append(svg(PLUS, 11, 1.8), el("span", "", t("Add a rule")));
+    // a rule by what the message asks for, offered beside it: told only as
+    // one of a rule's conditions, an intent went unseen (CherryL1quor on X
+    // took Jev for effort alone)
+    const rIntent = el("button", "rt-gadd");
+    rIntent.append(svg(PLUS, 11, 1.8), el("span", "", t("Route by what it asks for")));
+    const rAdds = el("div", "rt-gadds");
+    rAdds.append(rAdd, rIntent);
+    // the rule just added by intent, its intent not yet typed: the
+    // classifier shows for it all the same, so it is seen to be needed
+    let asking = null;
     const rHint2 = el("div", "hint");
     const drawRules = () => {
       drawCtx(); // the members' windows changed with them
       rlist.replaceChildren();
-      rAdd.hidden = d.members.length < 2;
+      rAdd.hidden = rIntent.hidden = d.members.length < 2;
       rHint2.textContent = t(d.members.length < 2 ? "With two models or more, a rule can send some turns to one of them first."
         : d.routing === "manual" ? "The rules wait while you pick the model by hand."
         : "Checked top first when you send a message: the first that matches sends that turn to its model first; the rest stay behind it if it fails. A turn under way is never moved.");
@@ -3454,7 +3497,13 @@
         it.onclick = () => ii.focus();
         const ii = input(r.intent || "", t("what it asks for, e.g. writing tests"));
         ii.maxLength = 200;
-        ii.oninput = () => { r.intent = ii.value; it.classList.toggle("on", !!r.intent.trim()); drawClassifier(); };
+        ii.oninput = () => {
+          r.intent = ii.value; it.classList.toggle("on", !!r.intent.trim());
+          // Jev, when there is one, as the effort picked per turn takes it
+          if (r.intent.trim() && !d.classifier && deciders.length) d.classifier = deciders[0].id;
+          drawClassifier();
+        };
+        if (r === asking) focusIntent = ii;
         ii.onkeydown = (e) => e.stopPropagation();
         it.append(el("span", "", t("asks for")), ii);
         // compacting: the agent summarizing its conversation (/compact),
@@ -3532,8 +3581,19 @@
         rlist.append(row);
       });
       drawClassifier();
+      focusIntent?.focus({ preventScroll: true });
+      focusIntent = null;
     };
-    rAdd.onclick = () => { d.rules.push({ use: d.members[d.members.length - 1], tokens: 0, images: false, effort: "", agents: [], intent: "", compact: false, time: null }); drawRules(); };
+    let focusIntent = null;
+    const newRule = () => ({ use: d.members[d.members.length - 1], tokens: 0, images: false, effort: "", agents: [], intent: "", compact: false, time: null });
+    rAdd.onclick = () => { d.rules.push(newRule()); drawRules(); };
+    const addIntentRule = () => {
+      asking = newRule();
+      d.rules.push(asking);
+      if (!d.classifier && deciders.length) d.classifier = deciders[0].id;
+      drawRules();
+    };
+    rIntent.onclick = addIntentRule;
     // the classifier, once a rule has an intent or the effort is picked
     // per turn: the model asked which intent a turn's message is and how
     // hard it is. Jev (a decision provider's model) answers both in one
@@ -3549,10 +3609,10 @@
     const isJev = (id) => deciders.some((x) => x.id === id);
     const drawClassifier = () => {
       const auto = d.effort === "auto";
-      const on = auto || d.rules.some((r) => r.intent?.trim());
+      const intents = d.rules.some((r) => r.intent?.trim() || (r === asking && d.rules.includes(r)));
+      const on = auto || intents;
       cls.hidden = cw.hidden = clabel.hidden = !on;
       if (!on) return;
-      const intents = d.rules.some((r) => r.intent?.trim());
       clabel.textContent = t(auto && !intents ? "Decided by" : "Intent told by");
       // a model, or another group: its models are asked in turn, failing
       // over as any request to it does (never this group: it would ask
@@ -3578,8 +3638,14 @@
           : auto
           ? "As a turn begins, this model is asked which of the intents the message is and how hard the turn is, each once; a small, fast one without reasoning is best. If it can't say, no intent matches and the turn reasons as the agent asked. Its calls show in the usage as magpie’s own."
           : "As a turn begins, this model is asked which of the intents the message is — once; a small, fast one without reasoning is best. If it fails or can't say, no intent matches. Its calls show in the usage as magpie’s own.")));
+      // picking the effort alone, the classifier can pick the model too
+      if (!intents && d.members.length > 1) {
+        const more = el("button", "text rt-cls-more", t("It can pick the model too: add a rule with an intent"));
+        more.onclick = addIntentRule;
+        cls.append(more);
+      }
     };
-    rbox.append(rlist, rAdd);
+    rbox.append(rlist, rAdds);
     const rw2 = el("div");
     rw2.append(rbox, rHint2);
     ed.append(el("label", "", t("Rules")), rw2);
