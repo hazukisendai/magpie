@@ -34,7 +34,7 @@ const (
 	Chat      Protocol = "chat"      // OpenAI Chat Completions
 	Responses Protocol = "responses" // OpenAI Responses
 	Anthropic Protocol = "anthropic" // Anthropic Messages
-	Gemini    Protocol = "gemini"    // Google Gemini. Served to clients; spoken upstream only for Factory's generate route
+	Gemini    Protocol = "gemini"    // Google Gemini's generateContent: served to clients; spoken upstream at a custom provider's Gemini URL and Factory's generate route
 )
 
 // Protocols in the order magpie prefers them when it has to translate.
@@ -68,12 +68,17 @@ type Provider struct {
 	Chat      string `json:"chat,omitempty"`
 	Responses string `json:"responses,omitempty"`
 	Anthropic string `json:"anthropic,omitempty"`
+	// Gemini is the base of Google's Gemini API, or of one that answers as
+	// it does (…/v1beta): models/{model}:streamGenerateContent is asked
+	// under it, with the key in x-goog-api-key, and models under it lists
+	// them (#1346).
+	Gemini string `json:"gemini,omitempty"`
 	// Decide is the base of a decision API (TypeSafe's System One, which
 	// Jev answers), for routing groups' choices of model and effort. The
 	// provider may also serve conversations on the other endpoints.
 	Decide string `json:"decide,omitempty"`
 	// BaseAPI is the API the user gave a custom provider's Base URL as,
-	// in its editor: "chat", "responses", "anthropic" or "decide". The
+	// in its editor: "chat", "responses", "anthropic", "gemini" or "decide". The
 	// editor shows that pick again, where it would otherwise show the
 	// first API with a URL (01huadalang: Responses picked and saved came
 	// back as OpenAI compatible). Requests go by which URLs are set.
@@ -427,7 +432,7 @@ func allProviders() []Provider {
 	var out []Provider
 	for _, p := range stored {
 		p = normalize(p)
-		if p.Chat == "" && p.Responses == "" && p.Anthropic == "" && p.Decide == "" {
+		if !hasEndpoint(p) {
 			picks[p.ID] = p
 			continue
 		}
@@ -569,7 +574,7 @@ func Save(p Provider) error {
 			// taken, it would hide that subscription once signed in
 			return fmt.Errorf("%q is the id of the %s subscription; pick another name", p.ID, p.ID)
 		}
-		if p.Chat == "" && p.Responses == "" && p.Anthropic == "" && p.Decide == "" {
+		if !hasEndpoint(p) {
 			if p.Preset == AzurePreset {
 				return errors.New("Azure OpenAI needs your resource's endpoint, e.g. https://<resource>.openai.azure.com")
 			}
@@ -627,7 +632,14 @@ func add(p Provider, once bool) (string, error) {
 		}
 	}
 	p.ID, p.Name = freeID(p.ID), freeName(p.Name)
-	return p.ID, Save(p)
+	if err := Save(p); err != nil {
+		return p.ID, err
+	}
+	if p.Preset != "" {
+		// a provider added from a partner counts for it (partner_events.go)
+		CountPartner(PartnerAdded, p.Preset)
+	}
+	return p.ID, nil
 }
 
 // AddCopy adds p, a copy the user made of the provider from (#268), beside
@@ -673,7 +685,7 @@ func AddCopy(p Provider, from string) (string, error) {
 // hostID is an id for a provider from the host it is on: api.relay.com is
 // relay, and one on an IP address, or with no address, is custom.
 func hostID(p Provider) string {
-	for _, u := range []string{p.Chat, p.Responses, p.Anthropic} {
+	for _, u := range []string{p.Chat, p.Responses, p.Anthropic, p.Gemini} {
 		h := hostOf(u)
 		if host, _, err := net.SplitHostPort(h); err == nil {
 			h = host
@@ -858,7 +870,7 @@ func normalize(p Provider) Provider {
 	p.AccountCaps = normalAccountCaps(p.AccountCaps)
 	p.ZhipuTeam = p.ZhipuTeam.normal()
 	p.remoteMagpieEndpoints()
-	for _, u := range []*string{&p.Chat, &p.Responses, &p.Anthropic, &p.Decide, &p.Website, &p.KeysURL} {
+	for _, u := range []*string{&p.Chat, &p.Responses, &p.Anthropic, &p.Gemini, &p.Decide, &p.Website, &p.KeysURL} {
 		*u = strings.TrimRight(strings.TrimSpace(*u), "/")
 		if *u != "" && !strings.Contains(*u, "://") {
 			*u = "https://" + *u
@@ -874,6 +886,7 @@ func normalize(p Provider) Provider {
 			break
 		}
 	}
+	p.Gemini = GeminiBase(p.Gemini)
 	// a pick whose URL is gone (cleared from the CLI) is no pick
 	if p.BaseAPI != "" && p.baseOf(p.BaseAPI) == "" {
 		p.BaseAPI = ""
@@ -1011,6 +1024,8 @@ func (p Provider) baseOf(api string) string {
 		return p.Responses
 	case "anthropic":
 		return p.Anthropic
+	case "gemini":
+		return p.Gemini
 	case "decide":
 		return p.Decide
 	}
@@ -1032,10 +1047,11 @@ func (p Provider) Base(proto Protocol) string {
 		}
 	case Gemini:
 		// Factory's Gemini models are generateContent at /api/llm/g, not
-		// Code Assist. No other provider speaks Gemini upstream.
-		if p.ID == "factory" && p.Account != nil {
+		// Code Assist
+		if p.FactoryGemini() {
 			return factoryAPI + "/api/llm/g/v1"
 		}
+		return p.Gemini
 	}
 	return ""
 }
@@ -1058,11 +1074,17 @@ func (p Provider) Speaks() []Protocol {
 	}
 	// Factory's Gemini models, on generateContent. A model droid didn't
 	// list stays on the other three (factoryAPIs); this is not one of them.
-	if p.ID == "factory" && p.Account != nil {
+	// A custom provider's Gemini API comes after the others it has.
+	if p.FactoryGemini() || p.Gemini != "" {
 		out = append(out, Gemini)
 	}
 	return out
 }
+
+// FactoryGemini is Factory's sign-in, whose Gemini models are asked on its
+// own generate route (…/generate, the model in the body), not at
+// models/{model}:streamGenerateContent as Google's Gemini API asks them.
+func (p Provider) FactoryGemini() bool { return p.ID == "factory" && p.Account != nil }
 
 // ResponsesFirst: an OpenAI model on OpenAI's API, Copilot's, PipeLLM's or Bedrock's,
 // which is best asked on the Responses API though Chat serves it too.

@@ -613,12 +613,31 @@
       render(); syncLists();
     });
     tabs.classList.add("lib-tabs");
-    head.append(tabs, el("span", "grow"));
+    head.append(tabs);
+    // the buttons keep together at the end, on a line of their own when the
+    // window is too narrow for the tabs and them
+    const acts = el("span", "lib-headacts");
+    // The market sits under everything the tab lists, many screens down with
+    // dozens of skills (#1348): the strip that stays at the top goes to it.
+    if (lib && (tab === "mcp" || tab === "skills")) {
+      const go = button("", "lib-discover", (e) => {
+        const mk = page.querySelector(`.mk[data-market="${tab}"]`);
+        if (!mk || !window.scrollOnPurpose?.(e, 1500)) return;
+        // its heading just under the strip, however many lines that takes
+        const top = mk.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop - head.getBoundingClientRect().height - 8;
+        page.scrollTo({ top, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        mk.querySelector("input")?.focus({ preventScroll: true });
+      });
+      go.append(glyph(GLYPH.search, "lib-mini"), el("span", "", t("Discover")));
+      go.title = tab === "mcp" ? t("Go to the MCP servers you can add, under the list") : t("Go to the skills you can add, under the list");
+      acts.append(go);
+    }
     const more = button("", "lib-more", () => lib && reveal(lib.dir));
     more.append(glyph(GLYPH.folder, "lib-mini"), el("span", "", t("Library folder")));
     if (lib) more.title = tilde(lib.dir);
     else more.disabled = true;
-    head.append(more);
+    acts.append(more);
+    head.append(acts);
     return head;
   }
 

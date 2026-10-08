@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -70,6 +71,9 @@ type partnerCache struct {
 	At       time.Time          `json:"at"`
 	Partners []Partner          `json:"partners"`
 	Seen     map[string]Partner `json:"seen,omitempty"`
+	// Noticed are the partners the add sheet has listed to the user; one
+	// listed since is new, and the add button says so (NoticePartners).
+	Noticed []string `json:"noticed,omitempty"`
 }
 
 var (
@@ -206,13 +210,49 @@ func refreshPartners() {
 		partnerState.Seen[p.ID] = p
 	}
 	partnerNext = now.Add(partnerEvery)
-	if b, err := json.Marshal(partnerState); err == nil {
-		_ = os.MkdirAll(filepath.Dir(partnerCacheFile()), 0o755)
-		tmp := partnerCacheFile() + ".tmp"
-		if os.WriteFile(tmp, b, 0o644) == nil {
-			_ = os.Rename(tmp, partnerCacheFile())
+	savePartners()
+}
+
+// savePartners writes what is held to disk; partnerMu held.
+func savePartners() {
+	b, err := json.Marshal(partnerState)
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(partnerCacheFile()), 0o755)
+	tmp := partnerCacheFile() + ".tmp"
+	if os.WriteFile(tmp, b, 0o644) == nil {
+		_ = os.Rename(tmp, partnerCacheFile())
+	}
+}
+
+// NoticePartners keeps that the user has been shown the partners ids, so
+// they are no longer new. It is kept whether or not they are counted.
+func NoticePartners(ids ...string) {
+	if partnersSource() == "off" {
+		return
+	}
+	partnerMu.Lock()
+	defer partnerMu.Unlock()
+	loadPartners()
+	changed := false
+	for _, id := range ids {
+		if _, ok := partnerState.Seen[id]; ok && !slices.Contains(partnerState.Noticed, id) {
+			partnerState.Noticed = append(partnerState.Noticed, id)
+			changed = true
 		}
 	}
+	if changed {
+		savePartners()
+	}
+}
+
+// PartnerNoticed reports whether the user has been shown the partner id.
+func PartnerNoticed(id string) bool {
+	partnerMu.Lock()
+	defer partnerMu.Unlock()
+	loadPartners()
+	return slices.Contains(partnerState.Noticed, id)
 }
 
 func fetchPartners(ctx context.Context, src string) ([]Partner, error) {

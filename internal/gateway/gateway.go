@@ -1567,6 +1567,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	// (#63): its reasoning, sealed by the account that wrote it, is refused
 	// by another.
 	cands, pl, aff, stuck := affine(scope, mode, rotate, r.Header, from, body, cands, pl)
+	defer opened(stuck)
 	leadAccount := ""
 	if sealedTask && !aff.Kept {
 		parent := metadata.Parent
@@ -2509,6 +2510,7 @@ func (s *Server) attempt(w http.ResponseWriter, r *http.Request, from provider.P
 	// Native ChatGPT accounts accept standalone tool outputs themselves.
 	if from == provider.Responses && (p.Account == nil || p.Account.Agent != "codex") {
 		body = orphanedToolOutputs(body)
+		body = pairToolItems(body)
 	}
 	// every request to the provider goes through its own proxy, if it has
 	// one (#237)
@@ -2598,9 +2600,10 @@ func (s *Server) attempt(w http.ResponseWriter, r *http.Request, from provider.P
 		relay = false
 	}
 	// Factory's generate route always answers SSE, and droid sends no stream
-	// field. A client that asked for one JSON body is translated, which
-	// reads that SSE and writes the JSON. Relaying it would hand the client
-	// the data: lines under a 200.
+	// field; a Gemini API is always asked streamGenerateContent
+	// (upstreamPath). A client that asked for one JSON body is translated,
+	// which reads that SSE and writes the JSON. Relaying it would hand the
+	// client the data: lines under a 200.
 	if relay && from == provider.Gemini && !streamOf(body) {
 		relay = false
 	}
@@ -2613,7 +2616,15 @@ func (s *Server) attempt(w http.ResponseWriter, r *http.Request, from provider.P
 	}
 	to := s.usable(p, model)
 	if len(to) == 0 {
-		to = p.Speaks()
+		// every API turned the model away: the one the user picked for it
+		// is asked again, not the first the provider has a URL for, which
+		// they said it isn't asked on (01huadalang: picked for Responses,
+		// sent as chat after one refusal there)
+		if proto, ok := p.ModelAPI(model); ok {
+			to = []provider.Protocol{proto}
+		} else {
+			to = p.Speaks()
+		}
 	}
 	if len(to) == 0 {
 		msg := p.Name + " has no endpoint configured"
@@ -2753,6 +2764,11 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 	body = toolOneOfAsAnyOf(p, to, body)
 	body = kimiToolEnumTypes(p, to, body)
 	body = clinePin(p, to, body)
+	if to == provider.Gemini && !p.FactoryGemini() {
+		// the model is in a Gemini API's path (upstreamPath); Factory's
+		// generate route reads it from the body
+		body = withoutFields(body, "model")
+	}
 	if to == provider.Anthropic {
 		body = s.bodyBetas(p, body)
 		body = s.withoutRefusedShapes(p, body)
@@ -2997,7 +3013,7 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	if e := fitFor(p, model, asked); asked != "" && e != asked {
 		body = withBodyEffort(proto, body, e)
 	}
-	path := pathOf(proto)
+	path := upstreamPath(p, proto, upstream)
 	if proto == provider.Anthropic && p.Account == nil && fromClaudeCode(r.Header) && r.URL.Query().Get("beta") == "true" {
 		path += "?beta=true" // as Claude Code asks it
 	}
@@ -3489,14 +3505,16 @@ func (s *Server) forwardTranslated(ctx context.Context, p provider.Provider, to 
 			// known: on Antigravity that is the variant the effort picked,
 			// not the model magpie knows
 			body = codeAssistBody(p, req, model, wires)
-		} else if wire := provider.UpstreamNameIn(wires, p.ID, model); wire != model {
+		}
+		wire := provider.UpstreamNameIn(wires, p.ID, model)
+		if wire != model && !(to == provider.CodeAssist && p.Account != nil) {
 			// the vendor's own name for the model goes in the model field
 			// and nowhere else: everything above shaped the request from
 			// the model magpie knows, which is what those decisions are
 			// about
 			body = rewriteModel(body, wire)
 		}
-		path := pathOf(to)
+		path := upstreamPath(p, to, wire)
 		if req.Resume && to == provider.Chat && chatPrefill(p.Host(), model) == "prefix" {
 			// DeepSeek serves its prefix mode under /beta, beside the /v1
 			// the base carries
@@ -4111,10 +4129,22 @@ func pathOf(proto provider.Protocol) string {
 	case provider.CodeAssist:
 		return "/v1internal:streamGenerateContent?alt=sse"
 	case provider.Gemini:
-		// Factory's generateContent. No other provider speaks Gemini upstream.
+		// Factory's generateContent; a Gemini API's path names the model
+		// (upstreamPath)
 		return "/generate"
 	}
 	return "/v1/messages"
+}
+
+// upstreamPath is the path under p's base for proto a request for model
+// (the vendor's name for it) goes to: a Gemini API's names the model, and
+// is always the stream, as Factory's generate route always answers one;
+// any other API's is pathOf's.
+func upstreamPath(p provider.Provider, proto provider.Protocol, model string) string {
+	if proto == provider.Gemini && !p.FactoryGemini() {
+		return provider.GeminiPath(model, true)
+	}
+	return pathOf(proto)
 }
 
 // parse is shared by translated routes and account/subscription backends.

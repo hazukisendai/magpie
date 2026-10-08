@@ -37,6 +37,9 @@ let editing = null; // provider id being edited; { preset } or { custom: true } 
 let draft = null; // the editor's working copy
 let naming = null; // the provider whose models' names and levels are open in its editor
 let adding = false; // the preset sheet is open
+// the partners counted as shown since the sheet opened: once an opening,
+// however often it is drawn (countPartner)
+let partnersCounted = null;
 let importing = null; // a magpie://import link waiting for a yes: { provider, error, replaces }
 let importingApps = null; // the Import from other apps dialog: { sources, picks }
 let providerDiscovery = []; // only opaque fingerprints and app names, never credentials
@@ -4684,6 +4687,7 @@ function renderProviders() {
   // scroll to the top; put it back so closing the editor leaves the reader
   // where they were.
   const view = $("#view-providers"), top = view.scrollTop;
+  markNewPartners();
   keepIcons($("#providers"), $("#offProviders"), $("#addSheet"), $("#excluded"));
   view.classList.remove("loading");
   view.removeAttribute("aria-busy");
@@ -6439,6 +6443,7 @@ function renderAdd() {
     setRoom(view, 0);
   }
   sheet.hidden = !adding;
+  if (!adding) partnersCounted = null;
   // Duplicate and Add another open a new provider's editor with no sheet
   if (!adding) return editing && typeof editing === "object" ? renderEditor(null, editing.preset) : null;
   const head = el("div", "row-head");
@@ -6497,6 +6502,13 @@ function renderAdd() {
       any = true;
       const grid = section("Partners", "magpie's sponsors");
       for (const pr of partners) grid.append(partnerTile(pr));
+      partnersCounted ??= new Set();
+      const fresh = partners.filter((p) => !partnersCounted.has(p.id));
+      for (const p of fresh) partnersCounted.add(p.id);
+      countPartner("shown", fresh.map((p) => p.id));
+      // shown, they are new no more (provider.NoticePartners)
+      for (const p of partners) p.new = false;
+      markNewPartners();
     }
     if (subs.length || inPlugins) {
       any = true;
@@ -6726,9 +6738,31 @@ function partnerNote(pr) {
   return n.en || "";
 }
 
+// countPartner counts what for partners (provider.CountPartner): magpie
+// counts them only when the stats are on, and nothing waits on it
+function countPartner(what, ids) {
+  if (ids.length) api("partner", { what, ids }).catch(() => {});
+}
+
+// a partner listed since the add sheet last showed the partners puts a
+// small dot on the add button, its name in the button's title, until the
+// sheet shows it (yetone: 有了新的合作伙伴的时候…提醒吸引用户点击查看)
+function markNewPartners() {
+  const b = $("#addProvider");
+  if (!b) return;
+  const fresh = adding ? [] : (providers?.presets || []).filter((p) => p.kind === "partner" && p.new && !p.added && partnerShown(p));
+  b.classList.toggle("has-new", fresh.length > 0);
+  if (fresh.length) b.title = t("New in Partners: {names}", { names: fresh.map((p) => p.name).join(", ") });
+  else b.removeAttribute("title");
+}
+
 // a partner's row: its own section says it is sponsored, so no badge
 function partnerTile(pr) {
   const b = tile({ ...pr, sponsored: false, note: "" });
+  if (!pr.added) {
+    const open = b.onclick;
+    b.onclick = (e) => { countPartner("opened", [pr.id]); open(e); };
+  }
   if (!pr.added) b.title = pr.name + (partnerNote(pr) ? " · " + partnerNote(pr) : "") + "\n" + hostOf(pr.chat || pr.responses || pr.anthropic);
   return b;
 }
@@ -7042,7 +7076,7 @@ function asTyped() {
   if (!draft) return {};
   // many keys pasted (361 on Discord) are asked about by the first
   const keys = splitKeys(draft.key || "");
-  const body = { typed: true, key: keys.length > 1 ? keys[0] : (draft.key || "").trim(), chat: (draft.chat || "").trim(), responses: (draft.responses || "").trim(), anthropic: (draft.anthropic || "").trim(), modelsURL: (draft.modelsURL || "").trim() };
+  const body = { typed: true, key: keys.length > 1 ? keys[0] : (draft.key || "").trim(), chat: (draft.chat || "").trim(), responses: (draft.responses || "").trim(), anthropic: (draft.anthropic || "").trim(), gemini: (draft.gemini || "").trim(), modelsURL: (draft.modelsURL || "").trim() };
   // a System One base is asked at POST …/systemone, not on the three APIs
   if (draft.api === "decide") body.decide = (draft.decide || "").trim();
   if (draft.headers) body.headers = headersOf(draft.headers);
@@ -7580,25 +7614,29 @@ function slide(box, key) {
   if (!on) { th.style.opacity = "0"; return; }
   th.style.opacity = "";
   const to = { x: on.offsetLeft, w: on.offsetWidth };
+  // a strip that wraps (the editor's Base URL APIs, narrow): the row of
+  // the one picked (top: 2px is the first's), and that row's height, not
+  // the strip's
+  if (box.clientHeight > on.offsetHeight + 8) Object.assign(to, { y: on.offsetTop - 2, h: on.offsetHeight });
   const control = thumbKey(box, key);
   const last = control && thumbs.get(control);
   let from = to;
-  const put = (p) => { th.style.transform = `translateX(${p.x}px)`; th.style.width = p.w + "px"; };
+  const put = (p) => { th.style.transform = p.y ? `translate(${p.x}px, ${p.y}px)` : `translateX(${p.x}px)`; th.style.width = p.w + "px"; th.style.height = p.h ? p.h + "px" : ""; };
   if (fresh) {
     from = last ? (performance.now() - last.at < 300 ? last.from : last) : to;
     th.classList.add("still");
     put(from);
     void th.offsetWidth;
     th.classList.remove("still");
-  } else if (last) from = { x: last.x, w: last.w };
+  } else if (last) from = { x: last.x, w: last.w, y: last.y, h: last.h };
   put(to);
   if (control) thumbs.set(control, { ...to, from, at: performance.now() });
 }
 
-const PROTOS = [["chat", "OpenAI", "Chat Completions — most agents"], ["responses", "Responses", "OpenAI Responses — what Codex speaks"], ["anthropic", "Anthropic", "Anthropic Messages — what Claude Code speaks"], ["decide", "System One", "A decision API on System One (TypeSafe's Jev, a gateway's, or Bailian's decision model) — what a routing group asks as a turn begins"]];
+const PROTOS = [["chat", "OpenAI", "Chat Completions — most agents"], ["responses", "Responses", "OpenAI Responses — what Codex speaks"], ["anthropic", "Anthropic", "Anthropic Messages — what Claude Code speaks"], ["gemini", "Gemini", "Gemini generateContent — what the Gemini CLI speaks"], ["decide", "System One", "A decision API on System One (TypeSafe's Jev, a gateway's, or Bailian's decision model) — what a routing group asks as a turn begins"]];
 // apiLabel: the name an API (a protocol) goes by in the editor
 const apiLabel = (proto) => (PROTOS.find(([k]) => k === proto) || [])[1] || proto;
-const decideOnly = (p) => !!p?.decide && !(p.chat || p.responses || p.anthropic);
+const decideOnly = (p) => !!p?.decide && !(p.chat || p.responses || p.anthropic || p.gemini);
 // a provider that lists its decision models apart (OpenRouter) says which
 // they are: its Jev Router (typesafe/jev-router) is a chat model
 const decidesModel = (p, id) => !!p.decide && (decideOnly(p) || (p.deciders ? p.deciders.includes(id) : id.split("/").some((s) => /^jev(?:-|$)/i.test(s))));
@@ -7631,12 +7669,12 @@ function pickedOf(p) {
 function baseAPIOf(p) {
   const picked = p.baseAPI === "chat" ? "openai" : p.baseAPI;
   if (picked && p[apiField[picked]]) return picked;
-  return p.chat ? "openai" : p.anthropic ? "anthropic" : p.responses ? "responses" : p.decide ? "decide" : "openai";
+  return p.chat ? "openai" : p.anthropic ? "anthropic" : p.responses ? "responses" : p.gemini ? "gemini" : p.decide ? "decide" : "openai";
 }
 
 // draftOf is a saved provider as its editor's form holds it.
 function draftOf(p) {
-  return { id: p.id, name: p.name, preset: p.preset, chat: p.chat, responses: p.responses, anthropic: p.anthropic, catalog: p.catalog, decide: p.decide || "", key: "", api: baseAPIOf(p), chosen: pickedOf(p), extra: [], headers: headerRows(p.headers), icon: p.icon || "", fallback: [...(p.fallback || [])], unlisted: !!p.unlisted, searches: !!p.searches, unredacted: !!p.unredacted, pinUpstream: !!p.pinUpstream, balanceURL: p.balanceURL || "", balancePath: p.balancePath || "", modelsURL: p.modelsURL || "", contexts: contextsText(p.contexts), outputs: contextsText(p.outputs), compacts: contextsText(p.compacts), keysUrl: p.keysUrl || "", ...proxyDraft(p), ...concurrencyDraft(p) };
+  return { id: p.id, name: p.name, preset: p.preset, chat: p.chat, responses: p.responses, anthropic: p.anthropic, gemini: p.gemini || "", catalog: p.catalog, decide: p.decide || "", key: "", api: baseAPIOf(p), chosen: pickedOf(p), extra: [], headers: headerRows(p.headers), icon: p.icon || "", fallback: [...(p.fallback || [])], unlisted: !!p.unlisted, searches: !!p.searches, unredacted: !!p.unredacted, pinUpstream: !!p.pinUpstream, balanceURL: p.balanceURL || "", balancePath: p.balancePath || "", modelsURL: p.modelsURL || "", contexts: contextsText(p.contexts), outputs: contextsText(p.outputs), compacts: contextsText(p.compacts), keysUrl: p.keysUrl || "", ...proxyDraft(p), ...concurrencyDraft(p) };
 }
 
 // duplicateProvider opens the Add form on a copy of p (#268): its URLs,
@@ -7783,6 +7821,7 @@ function drawEditor(p, presetID) {
   // the Redaction row, shown while every address is on this computer or
   // the local network
   let showLocal = () => {};
+  let showDetect = () => {};
   if (custom) {
     name = input(draft.name, t("e.g. My Relay"));
     name.oninput = () => { draft.name = name.value; if (isNew) draft.id = slug(name.value); };
@@ -7792,8 +7831,8 @@ function drawEditor(p, presetID) {
     // the base URL is the one the chosen protocol is asked at; a vendor
     // that serves only the Responses API is added (and tested) with that
     // alone, since /chat/completions would only fail (#73)
-    const seg = el("div", "segs");
-    for (const [v, hint] of [["openai", "…/v1 — chat completions, and responses when the vendor has it"], ["responses", "…/v1 — for a vendor that serves only the Responses API, not chat completions"], ["anthropic", "the root URL, what ANTHROPIC_BASE_URL would take"], ["decide", "a decision API's root, POST …/systemone under it: its models are a routing group's classifier, never an agent's"]]) {
+    const seg = el("div", "segs base-apis");
+    for (const [v, hint] of [["openai", "…/v1 — chat completions, and responses when the vendor has it"], ["responses", "…/v1 — for a vendor that serves only the Responses API, not chat completions"], ["anthropic", "the root URL, what ANTHROPIC_BASE_URL would take"], ["gemini", "…/v1beta — Google's Gemini API (generateContent), or one that answers as it does; the key goes in x-goog-api-key"], ["decide", "a decision API's root, POST …/systemone under it: its models are a routing group's classifier, never an agent's"]]) {
       const b = el("button", "opt" + (draft.api === v ? " on" : ""), t(API_NAMES[v]));
       b.title = t(hint);
       b.onclick = () => {
@@ -7824,14 +7863,15 @@ function drawEditor(p, presetID) {
       url.value = draft[apiField[v]] || "";
       for (const x of seg.querySelectorAll(".opt")) x.classList.toggle("on", x.dataset.api === v);
       slide(seg, "api");
-      url.placeholder = v === "anthropic" ? "https://…" : "https://…/v1";
+      url.placeholder = urlHint(v);
       fillEndpoints();
+      showDetect();
       showSearch();
       draft.onModelSearch?.();
       showLocal();
     };
     queueMicrotask(() => slide(seg, "api"));
-    url = input(draft[apiField[draft.api]], draft.api === "anthropic" ? "https://…" : "https://…/v1", "url");
+    url = input(draft[apiField[draft.api]], urlHint(draft.api), "url");
     url.classList.add("base-url");
     url.oninput = () => {
       draft[apiField[draft.api]] = url.value;
@@ -7849,11 +7889,16 @@ function drawEditor(p, presetID) {
         if (x.ok) draft[x.protocol] = x.base;
         else if ((x.status === 404 || x.status === 405) && (draft[x.protocol] || "").trim().replace(/\/+$/, "") === x.base) draft[x.protocol] = "";
       }
-      const v = draft[apiField[draft.api]] ? draft.api : ["openai", "responses", "anthropic", "decide"].find((a) => draft[apiField[a]]);
+      const v = draft[apiField[draft.api]] ? draft.api : ["openai", "responses", "anthropic", "gemini", "decide"].find((a) => draft[apiField[a]]);
       showApi(v || draft.api);
       draft.onModelPrefs?.(); // the APIs a model can be given follow the URLs
     };
-    urlWrap.append(detectAPIs(p, () => url.value, useDetected));
+    // Detect asks the three OpenAI and Anthropic APIs, which a Gemini
+    // API's URL has none of
+    const detect = detectAPIs(p, () => url.value, useDetected);
+    urlWrap.append(detect);
+    showDetect = () => { detect.hidden = draft.api === "gemini"; };
+    showDetect();
     ed.append(...field("Base URL", urlWrap));
   }
 
@@ -7997,7 +8042,14 @@ function drawEditor(p, presetID) {
   const keysUrl = p?.keysUrl || pr?.keysUrl;
   // the link follows the plan picked: a region's keysUrl goes with its
   // endpoints, and one without falls back to the preset's own page
-  if (keysUrl) { const b = el("button", "link", t("Get a key ↗")); b.onclick = () => api("open", { url: draft?.keysUrl || pr?.keysUrl || p?.keysUrl }); side.append(b); }
+  if (keysUrl) {
+    const b = el("button", "link", t("Get a key ↗"));
+    b.onclick = () => {
+      if (pr?.kind === "partner") countPartner("keys", [pr.id]);
+      api("open", { url: draft?.keysUrl || pr?.keysUrl || p?.keysUrl });
+    };
+    side.append(b);
+  }
   const keyWrap = el("div", "pair");
   keyWrap.append(key, side);
   if (p?.keyList?.length) ed.append(...field(t("Accounts"), renderKeyAccounts(p), p.routing ? t("Tick every key to use; Routing says how requests spread over them.") : t("Tick every key to use. Requests go to the first; when it runs out of quota or hits a rate limit, the next ticked key takes over.")));
@@ -8044,7 +8096,7 @@ function drawEditor(p, presetID) {
   // Discord). Only the user can say it is local all the way: a relay run
   // locally, or Ollama's cloud models, pass a request on to a vendor
   const addressOf = (k) => (draft[k] ?? (isNew && pr ? pr[k] : "")) || "";
-  const onLAN = () => !p?.account && (p?.preset || pr?.id) !== "remote-magpie" && localAddresses(["chat", "responses", "anthropic", "decide"].map(addressOf));
+  const onLAN = () => !p?.account && (p?.preset || pr?.id) !== "remote-magpie" && localAddresses(["chat", "responses", "anthropic", "gemini", "decide"].map(addressOf));
   if (!p?.account) {
     const [ltk, lcb] = tick(t("Send requests unmasked"), !!draft.unredacted);
     lcb.onchange = () => { draft.unredacted = lcb.checked; };
@@ -8216,6 +8268,7 @@ function drawEditor(p, presetID) {
       add("OpenAI URL", "chat", "https://…/v1", "if the vendor also serves chat completions");
       add("Anthropic URL", "anthropic", "https://…", "if the vendor also serves Anthropic messages");
       add("Responses URL", "responses", "https://…/v1", "if the vendor serves the OpenAI Responses API (Codex uses it natively)");
+      add("Gemini URL", "gemini", "https://…/v1beta", "if the vendor serves Google's Gemini API (generateContent)");
     };
     fillEndpoints();
     inner.append(eps);
@@ -8289,14 +8342,14 @@ function drawEditor(p, presetID) {
   const saveBtn = el("button", "text primary", t(isNew ? "Add" : "Save"));
   const save = () => {
     // new: an Add never replaces a provider that has the id already
-    const body = { id: p ? slug(draft.id) || p.id : draft.id, from: p?.id, name: draft.name, preset: draft.preset, key: draft.key || "", chat: draft.chat, responses: draft.responses, anthropic: draft.anthropic, catalog: draft.catalog, models: p ? chosenIds() : draft.extra, headers: headersOf(draft.headers), new: isNew };
+    const body = { id: p ? slug(draft.id) || p.id : draft.id, from: p?.id, name: draft.name, preset: draft.preset, key: draft.key || "", chat: draft.chat, responses: draft.responses, anthropic: draft.anthropic, gemini: (draft.gemini || "").trim(), catalog: draft.catalog, models: p ? chosenIds() : draft.extra, headers: headersOf(draft.headers), new: isNew };
     if (isNew && draft.copyOf) body.copyOf = draft.copyOf;
     if (decides || custom) body.decide = (custom && draft.api !== "decide" && !p?.decide ? "" : draft.decide || "").trim();
     if ((body.decide || "").includes(WORKSPACE)) { ed.querySelector(".workspace-id")?.focus({ preventScroll: true }); return editorError(t("Give the workspace ID your API key belongs to, or pick the Token Plan"), "warn"); }
     if (custom) {
       // the API picked for the Base URL is saved with it, and one left with
       // no URL is said rather than lost: the editor would open on another
-      if (!(draft[apiField[draft.api]] || "").trim() && ["chat", "responses", "anthropic", "decide"].some((k) => (draft[k] || "").trim())) {
+      if (!(draft[apiField[draft.api]] || "").trim() && ["chat", "responses", "anthropic", "gemini", "decide"].some((k) => (draft[k] || "").trim())) {
         ed.querySelector(".base-url")?.focus({ preventScroll: true });
         return editorError(t("Base URL: type the {api} URL, or pick the API the URL you have is for", { api: t(API_NAMES[draft.api]) }), "warn");
       }
@@ -12279,12 +12332,15 @@ async function keyFingerprint(key) {
 
 // apiField is the draft's URL a custom provider's base URL fills, by the
 // protocol chosen for it.
-const apiField = { openai: "chat", responses: "responses", anthropic: "anthropic", decide: "decide" };
+const apiField = { openai: "chat", responses: "responses", anthropic: "anthropic", gemini: "gemini", decide: "decide" };
 // the Base URL's APIs as the custom provider's editor names them
-const API_NAMES = { openai: "OpenAI compatible", responses: "OpenAI Responses", anthropic: "Anthropic compatible", decide: "System One" };
+const API_NAMES = { openai: "OpenAI compatible", responses: "OpenAI Responses", anthropic: "Anthropic compatible", gemini: "Gemini compatible", decide: "System One" };
+// urlHint: the Base URL's placeholder for the API it is for
+const urlHint = (api) => api === "anthropic" ? "https://…" : api === "gemini" ? "https://…/v1beta" : "https://…/v1";
 
 // respellURL turns a base URL into the one protocol api is asked at: the
-// root for Anthropic, which adds /v1 itself, …/v1 for OpenAI's two.
+// root for Anthropic, which adds /v1 itself, …/v1 for OpenAI's two,
+// …/v1beta for Gemini's (as Google's SDKs add it).
 // WORKSPACE stands for a Bailian workspace's id in a decision API's
 // address (provider.WorkspaceID); workspaceOf is the id url has in its
 // place in tmpl ("" for none), or null when url isn't at tmpl's host.
@@ -12305,6 +12361,7 @@ function respellURL(u, api) {
   u = u.trim().replace(/\/+$/, "");
   if (api === "anthropic") return u.replace(/\/v1$/, "");
   if (api === "decide") u = u.replace(/\/systemone$/, "");
+  if (api === "gemini") return /^https?:\/\/[^/]+\/v1$/.test(u) ? u + "beta" : /^https?:\/\/[^/]+$/.test(u) ? u + "/v1beta" : u;
   return /\/v\d+[a-z]*$/.test(u) || !/^https?:\/\/[^/]+$/.test(u) ? u : u + "/v1";
 }
 
@@ -19374,15 +19431,22 @@ function renderRedact(s, keep) {
   row(t("Count me as a user"), t("Once a day, a random id for this computer with magpie's version and system"),
     onOff(!s.noStats, (on) => savePrefs({ ...keep, noStats: !on })));
   // rides on that event: nothing goes without it
-  if (!s.noStats) row(t("Share the agents, providers and models I use"), t("Sent with that event, by magpie's own ids, with how many of each; a provider you added yourself is only “custom”. No names, addresses, accounts, keys or usage"),
+  if (!s.noStats) row(t("Share the agents, providers and models I use"), t("Sent with that event, by magpie's own ids, with how many of each, and how often each partner was shown, opened and added; a provider you added yourself is only “custom”. No names, addresses, accounts, keys or usage"),
     onOff(!s.noUsageStats, (on) => savePrefs({ ...keep, noUsageStats: !on })));
 }
 
 function renderOTel(s, keep) {
-  const box = $("#otelList");
-  box.replaceChildren();
+  const page = $("#otelList");
+  page.replaceChildren();
   let config = { ...(s.otel || {}) };
-  const section = (name) => box.append(el("div", "otel-section", t(name)));
+  // a heading over a card of its own, as on every other Settings tab
+  let box;
+  const section = (name) => {
+    const head = el("div", "row-head");
+    head.append(el("span", "label", t(name)));
+    box = el("div", "list prefs");
+    page.append(head, box);
+  };
   const row = (id, name, sub, control) => {
     const r = el("div", "row pref");
     r.id = id;
@@ -20374,11 +20438,12 @@ $("#sync").onclick = async () => {
     // clock: waiting for animationiteration and then dropping the class
     // jumped the icon back by however far it had turned while the page was
     // busy drawing the reply — the twitch at the end of every refresh.
-    const spin = b.querySelector("svg").getAnimations()[0];
+    // The svg's drawing turns, not the svg (app.css), one animation a part.
+    const spins = b.querySelector("svg").getAnimations({ subtree: true });
     const stop = () => b.classList.remove("spin");
-    if (spin?.effect?.updateTiming) {
-      spin.effect.updateTiming({ iterations: (spin.effect.getComputedTiming().currentIteration || 0) + 1 });
-      spin.finished.then(stop, stop);
+    if (spins.length && spins.every((a) => a.effect?.updateTiming)) {
+      for (const a of spins) a.effect.updateTiming({ iterations: (a.effect.getComputedTiming().currentIteration || 0) + 1 });
+      Promise.all(spins.map((a) => a.finished)).then(stop, stop);
     } else stop();
   }
 };

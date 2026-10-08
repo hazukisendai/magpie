@@ -241,3 +241,29 @@ func TestPartnersNow(t *testing.T) {
 		t.Fatalf("PartnersNow waited %v, want its bound", d)
 	}
 }
+
+// A partner is new until the add sheet has shown it; that is kept on disk,
+// and only for partners listed at some time.
+func TestNoticePartners(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	resetPartners()
+	t.Cleanup(resetPartners)
+	var body atomic.Value
+	body.Store(`{"partners":[{"id":"acme","name":"Acme","chat":"https://a.example/v1"},{"id":"beta","name":"Beta","chat":"https://b.example/v1"}]}`)
+	t.Setenv("MAGPIE_PARTNERS", partnerFeedServer(t, &body).URL)
+	fetchPartnersNow()
+	if PartnerNoticed("acme") || PartnerNoticed("beta") {
+		t.Fatal("noticed before shown")
+	}
+	NoticePartners("acme", "nobody")
+	resetPartners()
+	if !PartnerNoticed("acme") || PartnerNoticed("beta") || PartnerNoticed("nobody") {
+		t.Fatalf("after a restart: acme %v beta %v nobody %v", PartnerNoticed("acme"), PartnerNoticed("beta"), PartnerNoticed("nobody"))
+	}
+	// a fetch keeps what was noticed
+	body.Store(`{"partners":[{"id":"acme","name":"Acme","chat":"https://a.example/v1"},{"id":"gamma","name":"Gamma","chat":"https://g.example/v1"}]}`)
+	fetchPartnersNow()
+	if !PartnerNoticed("acme") || PartnerNoticed("gamma") {
+		t.Fatalf("after a fetch: acme %v gamma %v", PartnerNoticed("acme"), PartnerNoticed("gamma"))
+	}
+}

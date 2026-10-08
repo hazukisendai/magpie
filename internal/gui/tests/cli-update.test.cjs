@@ -130,6 +130,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.waitForTimeout(150);
       assert.equal(await page.locator(`${row("codex")} .ag-up`).textContent(), "Updating…");
       assert.equal(await page.locator(`${row("codex")} .ag-up.busy`).count(), 1);
+      // its ring turns inside the svg, round the viewBox's centre: a turned
+      // svg circles about a point off its centre in WebKit (owner, 10-09)
+      assert.deepEqual(await page.locator(`${row("codex")} .ag-up svg`).evaluate((s) => [getComputedStyle(s).animationName, getComputedStyle(s.firstElementChild).animationName, getComputedStyle(s.firstElementChild).transformBox]), ["none", "spin", "view-box"]);
       // clicked again while it runs: nothing more is asked
       await page.locator(`${row("codex")} .ag-up`).click({ force: true });
       await page.waitForTimeout(900);

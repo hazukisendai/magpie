@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ import (
 // the user turns it off.
 func TestSend(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("DO_NOT_TRACK", "")
 	t.Setenv("MAGPIE_NO_STATS", "")
 	usage = func() Usage {
@@ -153,5 +155,66 @@ func TestModelLabelKeepsTheUsersOwnModelIDs(t *testing.T) {
 		if got := modelLabel(ref); got != want {
 			t.Errorf("%s: %q, want %q", ref, got, want)
 		}
+	}
+}
+
+// The partners' counts of the days ended go with the day's event, each as
+// one "magpie partner" at its own day, and are sent once; with what magpie
+// is used with turned off they don't go.
+func TestSendPartnerCounts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("DO_NOT_TRACK", "")
+	t.Setenv("MAGPIE_NO_STATS", "")
+	usage = func() Usage { return Usage{} }
+	defer func() { usage = readUsage }()
+	counts := `{"days":{"2026-09-27":{"acme":{"shown":12,"opened":2}},"2026-09-28":{"acme":{"shown":3}}}}`
+	write := func() {
+		f := filepath.Join(home, ".cache", "magpie", "partner-counts.json")
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(counts), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	var got [][]map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Batch []map[string]any `json:"batch"`
+		}
+		json.NewDecoder(r.Body).Decode(&b)
+		got = append(got, b.Batch)
+	}))
+	defer srv.Close()
+	t.Setenv("MAGPIE_STATS_HOST", srv.URL)
+	day := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
+	partners := func(batch []map[string]any) []string {
+		var out []string
+		for _, e := range batch {
+			if e["event"] != "magpie partner" {
+				continue
+			}
+			p := e["properties"].(map[string]any)
+			out = append(out, fmt.Sprintf("%s %s %s %v %v", e["timestamp"], p["id"], p["what"], p["count"], p["$process_person_profile"]))
+		}
+		return out
+	}
+	Send(context.Background(), "0.1.300", "app", day)
+	if want := "2026-09-27T12:00:00Z acme opened 2 false,2026-09-27T12:00:00Z acme shown 12 false"; strings.Join(partners(got[0]), ",") != want {
+		t.Fatalf("partner events %q, want %q", partners(got[0]), want)
+	}
+	Send(context.Background(), "0.1.300", "app", day.Add(24*time.Hour))
+	if want := "2026-09-28T12:00:00Z acme shown 3 false"; strings.Join(partners(got[1]), ",") != want {
+		t.Fatalf("the next day sent %q, want %q", partners(got[1]), want)
+	}
+
+	write()
+	settings.Save(settings.Settings{NoUsageStats: true})
+	Send(context.Background(), "0.1.300", "app", day.Add(48*time.Hour))
+	if len(got) != 3 || len(partners(got[2])) != 0 {
+		t.Fatalf("sent with usage off: %v", got[2:])
 	}
 }

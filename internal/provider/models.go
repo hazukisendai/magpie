@@ -430,6 +430,20 @@ func (p Provider) fetchOne(ctx context.Context) ([]catalog.Model, string, error)
 	var errs []string
 	for _, proto := range p.Speaks() {
 		base := p.Base(proto)
+		if proto == Gemini {
+			if p.Gemini == "" {
+				continue // Factory's, whose list is its sign-in's
+			}
+			// listed as the Gemini API lists them, the key in its header
+			ms, _, err := catalog.FetchGemini(ctx, base, p.Key, p.listHeaders())
+			if err == nil {
+				return p.planModels(ms), base, nil
+			}
+			if !slices.Contains(errs, err.Error()) {
+				errs = append(errs, err.Error())
+			}
+			continue
+		}
 		ms, at, err := catalog.FetchAt(ctx, base, p.Key, proto == Anthropic, p.listHeaders())
 		if err == nil {
 			if proto != Anthropic {

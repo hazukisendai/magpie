@@ -109,6 +109,17 @@ i.dot.free { background: var(--k-free); box-shadow: inset 0 0 0 1px color-mix(in
 
 /* Routing: the card under the story of the request */
 .rt-log .ctx-card { margin-top: 12px; }
+/* folded: its head alone, how full it is beside the title */
+.ctx-fold { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 22px; margin: -2px 0 -2px -4px; padding: 0 6px 0 4px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.ctx-fold:hover { background: var(--pill); }
+.ctx-fold .tw { display: inline-flex; width: 10px; flex: none; color: var(--faint); }
+.ctx-fold .tw svg { transition: transform .2s var(--ease, ease); }
+.ctx-card.shut .ctx-fold .tw svg { transform: rotate(-90deg); }
+.ctx-short { display: none; flex: none; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.ctx-card.shut .ctx-short { display: inline; }
+.ctx-card.shut { padding-block: 10px; }
+.ctx-card.shut > :not(.ctx-head) { display: none; }
+:where(.ctx-card.shut.max420) .ctx-model { display: none; }
 
 /* the Usage page's Context tab */
 .ctx-agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; margin: 4px 0 18px; }

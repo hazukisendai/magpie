@@ -227,8 +227,14 @@
   // ctxUpdate(r, opts) draws another route, or the same one further on, in
   // it: what is the same stays the same nodes, its grid's cells among them,
   // so nothing flashes or comes in again and the grid keeps its height
+  // a card that folds (Routing's, opts.foldable) keeps the reader's
+  // choice: folded, it is its head alone, with how full the window is
+  // beside the title, so the request list under it has the room
+  // (0xBCD18E on X: it took most of the height, three rows were left)
+  let ctxShut = false;
+  try { ctxShut = localStorage.getItem("magpie.ctxShut") === "1"; } catch {}
   function ctxCard(r, opts = {}) {
-    const card = el("div", "ctx-card");
+    const card = el("div", "ctx-card" + (opts.foldable && ctxShut ? " shut" : ""));
     card.dataset.place = opts.place || "";
     if (cardWidth[card.dataset.place] !== undefined) sizeCard(card, cardWidth[card.dataset.place]);
     cardSizes.observe(card);
@@ -343,13 +349,32 @@
 
       // the head: what it is and how it was counted
       const head = el("div", "ctx-head");
-      const title = el("span", "ctx-title", t("Context window"));
+      let title = el("span", "ctx-title", t("Context window"));
+      if (opts.foldable) {
+        const fold = el("button", "ctx-fold");
+        fold.type = "button";
+        fold.setAttribute("aria-expanded", String(!card.classList.contains("shut")));
+        const tw = el("span", "tw");
+        tw.append(svg(CHEV, 10, 1.7));
+        fold.append(tw, title);
+        // the head is morphed, so the button that is there is the target
+        fold.onclick = (e) => {
+          ctxShut = !card.classList.contains("shut");
+          card.classList.toggle("shut", ctxShut);
+          tip.hidden = true;
+          e.currentTarget.setAttribute("aria-expanded", String(!ctxShut));
+          try { localStorage.setItem("magpie.ctxShut", ctxShut ? "1" : "0"); } catch {}
+        };
+        title = fold;
+      }
       const st = el("span", "ctx-state " + (live ? "live" : p.counted ? "counted" : "est"));
       st.append(el("i"), t(live ? "Live" : p.counted ? "Counted" : "Estimated"));
       st.title = t(live ? "The request is on its way: the prompt is estimated from what the agent sent"
         : p.counted ? "As many tokens as the vendor counted; the parts are measured from the request and scaled to it"
         : "Estimated from what the agent sent: the vendor didn't say how many tokens it read");
-      head.append(title, el("span", "grow"));
+      head.append(title);
+      if (opts.foldable) head.append(el("span", "ctx-short", fmtK(p.tokens) + (window ? " / " + fmtK(window) + " · " + pct(full) : "")));
+      head.append(el("span", "grow"));
       if (r.model) head.append(el("code", "ctx-model", r.model));
       head.append(st);
 

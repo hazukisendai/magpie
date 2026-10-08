@@ -29,7 +29,7 @@ const providerUsage = `usage:
   magpie provider <id>                    show one provider and its models
   magpie provider add <preset> <key>      add a preset vendor   e.g. magpie provider add deepseek sk-…
                                           again, it adds another (deepseek-2); k=v pairs too: id, name, header.X-Foo
-  magpie provider add <name> k=v…         add a custom vendor   k: url, anthropic, responses, decide, key, models, catalog, icon, header.X-Foo, balance, balance.path, balance.token, models.url, search
+  magpie provider add <name> k=v…         add a custom vendor   k: url, anthropic, responses, gemini, decide, key, models, catalog, icon, header.X-Foo, balance, balance.path, balance.token, models.url, search
   magpie provider set <id> k=v…           change a provider's settings, with the same k=v pairs as add
   magpie provider key <id> <key>          change the API key
   magpie provider icon <id> <file|name>   give a custom provider a picture (PNG, JPEG, SVG…) or a built-in icon
@@ -192,9 +192,13 @@ func presets() error {
 	kind := provider.Kind("")
 	// partners first, as the app lists them: their heading says they pay
 	all := []provider.PresetDef{}
+	var shown []string
 	for _, pa := range provider.PartnersNow(3 * time.Second) {
 		all = append(all, pa.PresetDef)
+		shown = append(shown, pa.ID)
 	}
+	provider.CountPartner(provider.PartnerShown, shown...)
+	provider.NoticePartners(shown...)
 	for _, pr := range append(all, provider.Presets()...) {
 		if pr.Kind != kind {
 			kind = pr.Kind
@@ -671,6 +675,7 @@ func showProvider(p provider.Provider) error {
 	kv("chat", p.Chat)
 	kv("responses", p.Responses)
 	kv("anthropic", p.Anthropic)
+	kv("gemini", p.Gemini)
 	if p.Searches {
 		kv("search", "by itself"+muted.Render("  a client's web search goes to it as sent"))
 	}
@@ -769,6 +774,10 @@ func applyPairs(p *provider.Provider, pairs []string) error {
 			p.Responses = v
 		case "anthropic":
 			p.Anthropic = v
+		case "gemini":
+			// a Gemini API's base (…/v1beta), Google's or one that
+			// answers as it does (#1346)
+			p.Gemini = v
 		case "decide":
 			// a System One root (…/systemone is asked under it): the
 			// provider routes groups, its models any name (#647)

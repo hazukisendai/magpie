@@ -345,6 +345,10 @@ magpie tui                                      # the whole thing, in a terminal
 | **[Intent routing](https://usemagpie.ai/docs/intent)** | Route each turn by what it asks for |
 | **[Import links](https://usemagpie.ai/docs/import)** | "Add to magpie" buttons for provider websites |
 
+## Privacy
+
+Your prompts, replies, keys and accounts go only to the providers you use. Once a day a released magpie tells us it is in use: a random id, its version and system, and which agents, providers and models it is used with, by magpie's own ids (a provider you added yourself is only `custom`), and for each partner listed first in the add sheet, how many times a day it was shown, opened and added (counts only). No names, URLs, accounts, keys, prompts or usage. Turn part or all of it off in **Settings → Privacy**, or with `DO_NOT_TRACK=1`. [What is sent, exactly](docs/reference.md#counting-users).
+
 ## Community
 
 Questions, ideas, or a model that won't show up? Tell us on **[Discord](https://discord.gg/vGSnD3ZKQF)**. That is where feedback goes.

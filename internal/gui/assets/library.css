@@ -29,11 +29,16 @@ body.window .lib-head { top: -2px; margin: -2px 0 0; padding: 8px 0 4px; --bleed
     --bleed-l: var(--view-left); --bleed-r: var(--view-right);
   }
   body.web .lib-tabs { max-width: 100%; flex-wrap: wrap; }
-  body.web .lib-more { flex: none; }
+  body.web .lib-more, body.web .lib-discover { flex: none; }
 }
+/* a window too narrow for the tabs and the buttons beside them (Discover,
+   Library folder) on one line has the buttons on a line of their own, at
+   its end */
+.lib-head { flex-wrap: wrap; row-gap: 4px; }
+.lib-headacts { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
 .lib-head.stuck::before { box-shadow: 0 1px 0 var(--line-2); }
 .lib-tabs .opt { height: 24px; padding: 0 12px; font-size: 12.5px; }
-.lib-more { display: inline-flex; align-items: center; gap: 5px; }
+.lib-more, .lib-discover { display: inline-flex; align-items: center; gap: 5px; }
 .lib-mini { display: inline-grid; place-items: center; color: var(--muted); }
 .lib-mini svg { width: 13px; height: 13px; }
 .lib-body { display: flex; flex-direction: column; flex: none; }
